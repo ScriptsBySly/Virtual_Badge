@@ -7,16 +7,106 @@
 #include "card_reader.h"
 #include "display.h"
 
-// FAT32 root filenames (8.3, uppercase)
-#define SD_IMAGE1_NAME "HDEOMC.RAW"
-#define SD_IMAGE2_NAME "HUEOMC.RAW"
-
 #ifndef TFT_WIDTH
 #define TFT_WIDTH 128u
 #endif
 #ifndef TFT_HEIGHT
 #define TFT_HEIGHT 160u
 #endif
+
+#define FRAME_INTERVAL_MS 500u
+#define BLINK_STEP_MS 120u
+#define TICK_MS 20u
+
+static uint16_t rng_state = 0xACE1u;
+
+static uint8_t rng8(void) {
+    rng_state = (uint16_t)((rng_state >> 1) ^ (-(rng_state & 1u) & 0xB400u));
+    return (uint8_t)(rng_state & 0xFFu);
+}
+
+static void delay_ms(uint16_t ms) {
+    while (ms--) {
+        _delay_ms(1);
+    }
+}
+
+static void build_raw_name(char *out, const char *base, const char *eyes, const char *mouth) {
+    out[0] = base[0];
+    out[1] = base[1];
+    out[2] = eyes[0];
+    out[3] = eyes[1];
+    out[4] = mouth[0];
+    out[5] = mouth[1];
+    out[6] = '.';
+    out[7] = 'R';
+    out[8] = 'A';
+    out[9] = 'W';
+    out[10] = '\0';
+}
+
+static void draw_frame(const char *base, const char *eyes, const char *mouth) {
+    char name[11];
+    build_raw_name(name, base, eyes, mouth);
+    (void)card_reader_draw_raw565(name, TFT_WIDTH, TFT_HEIGHT);
+}
+
+typedef struct {
+    uint8_t active;
+    uint8_t step;
+    uint16_t remaining_ms;
+    uint8_t mode;
+} blink_state_t;
+
+static void blink_start(blink_state_t *b) {
+    b->active = 1;
+    b->step = 0;
+    b->mode = rng8() % 4u;
+    if (b->mode == 2) {
+        b->remaining_ms = 1000u;
+    } else if (b->mode == 3) {
+        b->remaining_ms = 2000u + (uint16_t)(rng8() % 7u) * 1000u;
+    } else {
+        b->remaining_ms = BLINK_STEP_MS;
+    }
+}
+
+static const char *blink_eyes_for_step(const blink_state_t *b) {
+    if (b->mode == 0) {
+        return (b->step == 0) ? "EC" : "EO";
+    }
+    if (b->mode == 1) {
+        if (b->step == 0) return "EM";
+        if (b->step == 1) return "EC";
+        return "EO";
+    }
+    if (b->mode == 2) {
+        return (b->step == 0) ? "EM" : "EO";
+    }
+    // mode 3
+    return (b->step == 0) ? "EM" : "EO";
+}
+
+static uint8_t blink_step_count(const blink_state_t *b) {
+    if (b->mode == 0) return 2;
+    if (b->mode == 1) return 3;
+    return 2;
+}
+
+static uint8_t blink_tick(blink_state_t *b, uint16_t tick_ms) {
+    if (!b->active) return 0;
+    if (b->remaining_ms > tick_ms) {
+        b->remaining_ms -= tick_ms;
+        return 0;
+    }
+    b->step++;
+    if (b->step >= blink_step_count(b)) {
+        b->active = 0;
+        return 1;
+    }
+    b->remaining_ms = BLINK_STEP_MS;
+    return 0;
+}
 
 int main(void) {
     display_init();
@@ -26,16 +116,52 @@ int main(void) {
     card_reader_init(&status);
     card_reader_print_status(&status);
 
+    const char *bases[2] = {"HU", "HD"};
+    uint8_t base_index = 0;
+    uint16_t frame_timer = FRAME_INTERVAL_MS;
+    uint16_t blink_timer = 4u * FRAME_INTERVAL_MS;
+    blink_state_t blink = {0};
+    const char *base = bases[base_index];
+    const char *eyes = "EO";
+    draw_frame(base, eyes, "MC");
+
     while (1) {
         if (status.sd_ok && status.fat_ok) {
-            card_reader_draw_raw565(SD_IMAGE1_NAME, TFT_WIDTH, TFT_HEIGHT);
-            _delay_ms(500);
-            card_reader_draw_raw565(SD_IMAGE2_NAME, TFT_WIDTH, TFT_HEIGHT);
-            _delay_ms(500);
-        } else {
-            _delay_ms(200);
+            if (frame_timer <= TICK_MS) {
+                frame_timer = FRAME_INTERVAL_MS;
+                base_index ^= 1u;
+                base = bases[base_index];
+                eyes = blink.active ? blink_eyes_for_step(&blink) : "EO";
+                draw_frame(base, eyes, "MC");
+            } else {
+                frame_timer -= TICK_MS;
+            }
+
+            if (!blink.active) {
+                if (blink_timer <= TICK_MS) {
+                    blink_start(&blink);
+                    eyes = blink_eyes_for_step(&blink);
+                    draw_frame(base, eyes, "MC");
+                    blink_timer = (4u + (rng8() % 8u)) * FRAME_INTERVAL_MS;
+                } else {
+                    blink_timer -= TICK_MS;
+                }
+            } else {
+                if (blink_tick(&blink, TICK_MS)) {
+                    eyes = "EO";
+                    draw_frame(base, eyes, "MC");
+                } else {
+                    eyes = blink_eyes_for_step(&blink);
+                }
+            }
         }
 
-        card_reader_handle_cli(&status, SD_IMAGE1_NAME, SD_IMAGE2_NAME, TFT_WIDTH, TFT_HEIGHT);
+        char img1[11];
+        char img2[11];
+        build_raw_name(img1, "HU", "EO", "MC");
+        build_raw_name(img2, "HD", "EO", "MC");
+        card_reader_handle_cli(&status, img1, img2, TFT_WIDTH, TFT_HEIGHT);
+
+        _delay_ms(TICK_MS);
     }
 }

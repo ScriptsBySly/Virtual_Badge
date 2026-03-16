@@ -570,6 +570,11 @@ static uint8_t fat32_read_file_stream(const char *name, uint32_t expected_size,
     return remaining == 0;
 }
 
+static void tft_stream_bytes_sd(const uint8_t *data, uint16_t len) {
+    SD_CS_HIGH();
+    display_stream_bytes(data, len);
+}
+
 static void fat32_print_name83(const uint8_t *entry) {
     char name[13];
     uint8_t n = 0;
@@ -677,7 +682,7 @@ void card_reader_print_status(const card_reader_status_t *status) {
 uint8_t card_reader_draw_raw565(const char *name, uint16_t width, uint16_t height) {
     uint32_t expected = (uint32_t)width * (uint32_t)height * 2u;
     display_set_addr_window(width, height);
-    return fat32_read_file_stream(name, expected, display_stream_bytes);
+    return fat32_read_file_stream(name, expected, tft_stream_bytes_sd);
 }
 
 void card_reader_handle_cli(const card_reader_status_t *status,
