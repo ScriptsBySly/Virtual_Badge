@@ -324,28 +324,38 @@ out:
 
 static uint8_t sd_read_block(uint32_t lba, uint8_t *buf) {
     uint32_t addr = sd_is_sdhc ? lba : (lba << 9);
-    uint8_t r1 = sd_send_cmd(17, addr, 0x01, 0);
-    if (r1 != 0x00) {
+    for (uint8_t attempt = 0; attempt < 2; attempt++) {
+        if (attempt == 0) {
+            spi_set_speed_fast();
+        } else {
+            spi_set_speed_very_slow();
+        }
+        uint8_t r1 = sd_send_cmd(17, addr, 0x01, 0);
+        if (r1 != 0x00) {
+            sd_deselect();
+            continue;
+        }
+        // Wait for data token
+        uint16_t timeout = 50000;
+        uint8_t token;
+        do {
+            token = spi_transfer(0xFF);
+        } while (token == 0xFF && --timeout);
+        if (token != 0xFE) {
+            sd_deselect();
+            continue;
+        }
+        for (uint16_t i = 0; i < 512; i++) {
+            buf[i] = spi_transfer(0xFF);
+        }
+        spi_transfer(0xFF); // CRC
+        spi_transfer(0xFF);
         sd_deselect();
-        return 0;
+        spi_set_speed_fast();
+        return 1;
     }
-    // Wait for data token
-    uint16_t timeout = 50000;
-    uint8_t token;
-    do {
-        token = spi_transfer(0xFF);
-    } while (token == 0xFF && --timeout);
-    if (token != 0xFE) {
-        sd_deselect();
-        return 0;
-    }
-    for (uint16_t i = 0; i < 512; i++) {
-        buf[i] = spi_transfer(0xFF);
-    }
-    spi_transfer(0xFF); // CRC
-    spi_transfer(0xFF);
-    sd_deselect();
-    return 1;
+    spi_set_speed_fast();
+    return 0;
 }
 
 static uint8_t sd_is_fat_formatted(void) {

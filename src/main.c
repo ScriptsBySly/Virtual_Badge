@@ -51,6 +51,37 @@ static void draw_frame(const char *base, const char *eyes, const char *mouth) {
     (void)card_reader_draw_raw565(name, TFT_WIDTH, TFT_HEIGHT);
 }
 
+typedef enum {
+    EVENT_NONE = 0,
+    EVENT_HAPPY,
+    EVENT_SADNEW,
+    EVENT_MAD,
+} event_type_t;
+
+static void build_event_name(char *out, const char *base, event_type_t ev) {
+    out[0] = base[0];
+    out[1] = base[1];
+    if (ev == EVENT_HAPPY) {
+        out[2] = 'H'; out[3] = 'A'; out[4] = 'P'; out[5] = 'P'; out[6] = 'Y';
+        out[7] = '.'; out[8] = 'R'; out[9] = 'A'; out[10] = 'W'; out[11] = '\0';
+        return;
+    }
+    if (ev == EVENT_SADNEW) {
+        out[2] = 'S'; out[3] = 'A'; out[4] = 'D'; out[5] = 'N'; out[6] = 'E'; out[7] = 'W';
+        out[8] = '.'; out[9] = 'R'; out[10] = 'A'; out[11] = 'W'; out[12] = '\0';
+        return;
+    }
+    // EVENT_MAD
+    out[2] = 'M'; out[3] = 'A'; out[4] = 'D';
+    out[5] = '.'; out[6] = 'R'; out[7] = 'A'; out[8] = 'W'; out[9] = '\0';
+}
+
+static void draw_event_frame(const char *base, event_type_t ev) {
+    char name[13];
+    build_event_name(name, base, ev);
+    (void)card_reader_draw_raw565(name, TFT_WIDTH, TFT_HEIGHT);
+}
+
 typedef struct {
     uint8_t active;
     uint8_t step;
@@ -124,6 +155,9 @@ int main(void) {
     const char *base = bases[base_index];
     const char *eyes = "EO";
     draw_frame(base, eyes, "MC");
+    event_type_t event = EVENT_NONE;
+    uint16_t event_timer = (uint16_t)(5000u + (uint16_t)(rng8() % 6u) * 1000u);
+    uint16_t event_remaining = 0;
 
     while (1) {
         if (status.sd_ok && status.fat_ok) {
@@ -131,36 +165,63 @@ int main(void) {
                 frame_timer = FRAME_INTERVAL_MS;
                 base_index ^= 1u;
                 base = bases[base_index];
-                eyes = blink.active ? blink_eyes_for_step(&blink) : "EO";
-                draw_frame(base, eyes, "MC");
+                if (event != EVENT_NONE) {
+                    draw_event_frame(base, event);
+                } else {
+                    eyes = blink.active ? blink_eyes_for_step(&blink) : "EO";
+                    draw_frame(base, eyes, "MC");
+                }
             } else {
                 frame_timer -= TICK_MS;
             }
 
-            if (!blink.active) {
-                if (blink_timer <= TICK_MS) {
-                    blink_start(&blink);
-                    eyes = blink_eyes_for_step(&blink);
-                    draw_frame(base, eyes, "MC");
-                    blink_timer = (4u + (rng8() % 8u)) * FRAME_INTERVAL_MS;
+            if (event == EVENT_NONE) {
+                if (event_timer <= TICK_MS) {
+                    event = (event_type_t)(1u + (rng8() % 3u));
+                    event_remaining = 3000u;
+                    draw_event_frame(base, event);
                 } else {
-                    blink_timer -= TICK_MS;
+                    event_timer -= TICK_MS;
                 }
             } else {
-                if (blink_tick(&blink, TICK_MS)) {
+                if (event_remaining <= TICK_MS) {
+                    event = EVENT_NONE;
+                    event_timer = (uint16_t)(5000u + (uint16_t)(rng8() % 6u) * 1000u);
+                    blink_timer = 4u * FRAME_INTERVAL_MS;
                     eyes = "EO";
                     draw_frame(base, eyes, "MC");
                 } else {
-                    eyes = blink_eyes_for_step(&blink);
+                    event_remaining -= TICK_MS;
+                }
+            }
+
+            if (event == EVENT_NONE) {
+                if (!blink.active) {
+                    if (blink_timer <= TICK_MS) {
+                        blink_start(&blink);
+                        eyes = blink_eyes_for_step(&blink);
+                        draw_frame(base, eyes, "MC");
+                        blink_timer = (4u + (rng8() % 8u)) * FRAME_INTERVAL_MS;
+                    } else {
+                        blink_timer -= TICK_MS;
+                    }
+                } else {
+                    if (blink_tick(&blink, TICK_MS)) {
+                        eyes = "EO";
+                        draw_frame(base, eyes, "MC");
+                    } else {
+                        eyes = blink_eyes_for_step(&blink);
+                    }
                 }
             }
         }
 
-        char img1[11];
-        char img2[11];
-        build_raw_name(img1, "HU", "EO", "MC");
-        build_raw_name(img2, "HD", "EO", "MC");
-        card_reader_handle_cli(&status, img1, img2, TFT_WIDTH, TFT_HEIGHT);
+        // CLI disabled for smoother animation. Re-enable if needed.
+        // char img1[11];
+        // char img2[11];
+        // build_raw_name(img1, "HU", "EO", "MC");
+        // build_raw_name(img2, "HD", "EO", "MC");
+        // card_reader_handle_cli(&status, img1, img2, TFT_WIDTH, TFT_HEIGHT);
 
         _delay_ms(TICK_MS);
     }
