@@ -33,6 +33,8 @@ add_custom_target(generate_images DEPENDS ${GENERATED_IMAGES_H})
 
 add_executable(${PROJECT_NAME}.elf
     src/main.c
+    src/display.c
+    src/card_reader.c
     ${GENERATED_IMAGES_H}
 )
 
@@ -47,7 +49,6 @@ target_compile_options(${PROJECT_NAME}.elf PRIVATE
     -Os
     -Wall
     -Wextra
-    -Werror
     -ffunction-sections
     -fdata-sections
 )

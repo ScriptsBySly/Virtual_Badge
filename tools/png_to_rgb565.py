@@ -196,13 +196,31 @@ def write_header(images, out_path, *, rle=False):
                 f.write("};\n\n")
 
 
+def raw_name_from_source(path):
+    base = os.path.splitext(os.path.basename(path))[0]
+    return "".join(ch for ch in base if ch.isalnum()).upper()
+
+
+def write_raw(images, out_dir, sources):
+    for name, (w, h, data) in images.items():
+        src_path = sources[name]
+        base_dir = out_dir if out_dir else os.path.dirname(src_path)
+        os.makedirs(base_dir or ".", exist_ok=True)
+        raw_name = raw_name_from_source(src_path)
+        out_path = os.path.join(base_dir, f"{raw_name}.RAW")
+        with open(out_path, "wb") as f:
+            for v in data:
+                f.write(bytes([(v >> 8) & 0xFF, v & 0xFF]))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--resize", default="", help="Resize to WxH (nearest, contain). Example: 128x160")
+    ap.add_argument("--out", default="", help="Output header path (optional)")
+    ap.add_argument("--resize", default="128x160", help="Resize to WxH (nearest, contain). Default: 128x160")
     ap.add_argument("--background", default="0x0000", help="Background RGB565 (hex). Default: 0x0000")
     ap.add_argument("--rle", action="store_true", help="Emit RLE-compressed image data")
-    ap.add_argument("images", nargs="+")
+    ap.add_argument("--raw-dir", default="", help="Output directory for raw RGB565 .RAW files (default: alongside each PNG)")
+    ap.add_argument("images", nargs="*", help="PNG files (default: all PNGs in current directory)")
     args = ap.parse_args()
 
     resize_w = resize_h = None
@@ -219,8 +237,15 @@ def main():
     if not (0 <= background <= 0xFFFF):
         raise SystemExit("--background must be a 16-bit hex value, e.g. 0x0000")
 
+    image_paths = list(args.images)
+    if not image_paths:
+        image_paths = [p for p in os.listdir(".") if p.lower().endswith(".png")]
+    if not image_paths:
+        raise SystemExit("No PNG files found.")
+
     images = {}
-    for path in args.images:
+    sources = {}
+    for path in image_paths:
         base = os.path.splitext(os.path.basename(path))[0]
         name = base.upper()
         name = "IMG_" + "".join(ch if ch.isalnum() else "_" for ch in name)
@@ -229,8 +254,14 @@ def main():
             data = resize_contain_nearest(data, w, h, resize_w, resize_h, background=background)
             w, h = resize_w, resize_h
         images[name] = (w, h, data)
+        sources[name] = path
 
-    write_header(images, args.out, rle=args.rle)
+    if args.out:
+        write_header(images, args.out, rle=args.rle)
+    if args.raw_dir:
+        write_raw(images, args.raw_dir, sources)
+    else:
+        write_raw(images, "", sources)
 
 
 if __name__ == "__main__":
