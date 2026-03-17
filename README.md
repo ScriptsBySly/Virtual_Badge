@@ -1,5 +1,5 @@
 # Virtual_Badge
-Code to display PNGs to a small display using an ATmega328P
+Code to display RGB565 animations on a small SPI TFT with SD storage.
 
 ## Build
 Requires `avr-gcc`, `avr-libc`, `cmake`, and `python3`.
@@ -8,32 +8,48 @@ Requires `avr-gcc`, `avr-libc`, `cmake`, and `python3`.
 - Flash: `cmake --build build --target flash`
 
 ## Images
-Images are generated at build time from `HD_EO_MC.png` and `HU_EO_MC.png` into `build/generated/generated_images.h` using `tools/png_to_rgb565.py`.
+This firmware reads **raw RGB565** files from storage (not PNG). Use:
 
-The generator currently:
-- Resizes with nearest-neighbor using a “contain” fit into `128x160`
-- Emits RGB565 with simple RLE compression for AVR flash size
+- `tools/png_to_rgb565.py` to generate `.RAW` files (128x160, RGB565 big‑endian)
+- `tools/composite_overlays.py` to pre‑compose overlay PNGs into event RAWs
+
+## MCU Profiles
+The MCU‑specific code lives in `src/hal/` so you can swap platforms by changing a single file.
+
+### ATmega328P (Arduino Nano)
+HAL file: `src/hal/hal_atmega328p.c`
+
+**SPI (shared TFT + SD)**
+- `SCK` → `D13` (PB5)
+- `MOSI` → `D11` (PB3)
+- `MISO` → `D12` (PB4)
+
+**TFT control**
+- `TFT_CS` → `D10` (PB2)
+- `TFT_DC` → `D9` (PB1)
+- `TFT_RST` → `D8` (PB0)
+
+**SD card CS**
+- `SD_CS` → `D4` (PD4)
+
+**Power**
+- SD slot is usually **3.3V** (level shifting required on 5V boards if not included)
 
 ## SD Card (SPI)
-Wiring for Arduino Nano (ATmega328P):
-- `SCK` → `D13`
-- `MOSI` → `D11`
-- `MISO` → `D12`
-- `CS` → `D4`
-- `VCC` → `3.3V` (or `5V` only if the module has a regulator + level shifting)
-- `GND` → `GND`
-
 Files must be FAT32 (exFAT is not supported). Place images in the root of the card.
 
-This firmware reads raw RGB565 files, not PNG. Use the tool below to generate `.RAW` files.
+**Base animation files (examples)**
+- `HUEOMC.RAW`, `HDEOMC.RAW`
+- `HUECMC.RAW`, `HDECMC.RAW`
+- `HUEMMC.RAW`, `HDEMMC.RAW`
 
-Generate raw files (128x160, RGB565 big-endian):
-```bash
-python3 tools/png_to_rgb565.py --out /tmp/ignore.h --resize 128x160 --raw-dir /tmp/raw HD_EO_MC.png HU_EO_MC.png
-```
-Copy `/tmp/raw/IMG_HD_EO_MC.RAW` to the SD card as `HD_EO_MC.RAW` (same for `HU_EO_MC.RAW`).
+**Event files (pre‑composed)**
+- `HUHAPPY.RAW`, `HDHAPPY.RAW`
+- `HUSADNEW.RAW`, `HDSADNEW.RAW`
+- `HUMAD.RAW`, `HDMAD.RAW`
 
-CLI on UART @ 9600 8N1:
+CLI on UART @ 9600 8N1 (if enabled):
 - `s` = status
 - `r` = read LBA0 (prints signature + first 16 bytes)
-- `p` = play SD images
+- `l` = list root directory
+- `d` = SD probe

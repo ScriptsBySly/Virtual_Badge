@@ -6,6 +6,7 @@
 
 #include "card_reader.h"
 #include "display.h"
+#include "hal/hal.h"
 
 #ifndef TFT_WIDTH
 #define TFT_WIDTH 128u
@@ -140,6 +141,7 @@ static uint8_t blink_tick(blink_state_t *b, uint16_t tick_ms) {
 }
 
 int main(void) {
+    hal_init();
     display_init();
     display_fill_color(0x0000);
 

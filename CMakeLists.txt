@@ -11,6 +11,7 @@ add_executable(${PROJECT_NAME}.elf
     src/main.c
     src/display.c
     src/card_reader.c
+    src/hal/hal_atmega328p.c
 )
 
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE F_CPU=${F_CPU})
