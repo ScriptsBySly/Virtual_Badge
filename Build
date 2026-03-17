@@ -4,10 +4,63 @@ set -euo pipefail
 CMAKE=${CMAKE:-/usr/bin/cmake}
 BUILD_DIR=${BUILD_DIR:-build}
 TOOLCHAIN_FILE=${TOOLCHAIN_FILE:-cmake/avr-gcc-toolchain.cmake}
+OUTPUT_DIR=${OUTPUT_DIR:-output}
 
-if [[ "${1:-}" == "-c" || "${1:-}" == "--clean" ]]; then
+TARGET="nano"
+CLEAN=0
+
+usage() {
+  echo "Usage: $0 [-t nano|esp32] [-c]"
+}
+
+while getopts ":t:ch" opt; do
+  case "${opt}" in
+    t) TARGET="${OPTARG}" ;;
+    c) CLEAN=1 ;;
+    h) usage; exit 0 ;;
+    *) usage; exit 1 ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [[ "${CLEAN}" -eq 1 ]]; then
   rm -rf "${BUILD_DIR}"
 fi
 
-"${CMAKE}" -S . -B "${BUILD_DIR}" -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}"
-"${CMAKE}" --build "${BUILD_DIR}"
+case "${TARGET}" in
+  nano|Nano)
+    "${CMAKE}" -S . -B "${BUILD_DIR}" \
+      -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
+      -DHAL_MCU=atmega328p
+    "${CMAKE}" --build "${BUILD_DIR}"
+    mkdir -p "${OUTPUT_DIR}"
+    for f in "${BUILD_DIR}/virtual_badge_avr.elf" "${BUILD_DIR}/virtual_badge_avr.hex"; do
+      if [[ -f "${f}" ]]; then
+        cp -f "${f}" "${OUTPUT_DIR}/"
+      fi
+    done
+    ;;
+  esp32|ESP32)
+    if [[ -z "${IDF_PATH:-}" ]]; then
+      echo "IDF_PATH not set. Run: . /path/to/esp-idf/export.sh"
+      exit 1
+    fi
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 build
+    mkdir -p "${OUTPUT_DIR}"
+    for f in \
+      "${BUILD_DIR}/virtual_badge_esp32.bin" \
+      "${BUILD_DIR}/virtual_badge_esp32.elf" \
+      "${BUILD_DIR}/virtual_badge_esp32.map" \
+      "${BUILD_DIR}/bootloader/bootloader.bin" \
+      "${BUILD_DIR}/partition_table/partition-table.bin"; do
+      if [[ -f "${f}" ]]; then
+        cp -f "${f}" "${OUTPUT_DIR}/"
+      fi
+    done
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

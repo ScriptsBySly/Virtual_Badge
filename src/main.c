@@ -1,9 +1,3 @@
-#ifndef F_CPU
-#define F_CPU 16000000UL
-#endif
-
-#include <util/delay.h>
-
 #include "card_reader.h"
 #include "display.h"
 #include "hal/hal.h"
@@ -24,12 +18,6 @@ static uint16_t rng_state = 0xACE1u;
 static uint8_t rng8(void) {
     rng_state = (uint16_t)((rng_state >> 1) ^ (-(rng_state & 1u) & 0xB400u));
     return (uint8_t)(rng_state & 0xFFu);
-}
-
-static void delay_ms(uint16_t ms) {
-    while (ms--) {
-        _delay_ms(1);
-    }
 }
 
 static void build_raw_name(char *out, const char *base, const char *eyes, const char *mouth) {
@@ -140,7 +128,7 @@ static uint8_t blink_tick(blink_state_t *b, uint16_t tick_ms) {
     return 0;
 }
 
-int main(void) {
+static void app_run(void) {
     hal_init();
     display_init();
     display_fill_color(0x0000);
@@ -225,6 +213,17 @@ int main(void) {
         // build_raw_name(img2, "HD", "EO", "MC");
         // card_reader_handle_cli(&status, img1, img2, TFT_WIDTH, TFT_HEIGHT);
 
-        _delay_ms(TICK_MS);
+        hal_delay_ms(TICK_MS);
     }
 }
+
+#ifdef ESP_PLATFORM
+void app_main(void) {
+    app_run();
+}
+#else
+int main(void) {
+    app_run();
+    return 0;
+}
+#endif

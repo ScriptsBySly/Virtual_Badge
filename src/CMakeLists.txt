@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "display.c"
+        "card_reader.c"
+        "hal/hal_esp32_idf.c"
+    INCLUDE_DIRS
+        "."
+        "hal"
+    REQUIRES
+        driver
+)

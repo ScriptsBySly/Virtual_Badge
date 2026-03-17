@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PORT=${PORT:-/dev/ttyUSB0}
+
+usage() {
+  echo "Usage: $0 [-d /dev/ttyUSB0] path/to/firmware.(hex|elf)"
+}
+
+while getopts ":d:h" opt; do
+  case "${opt}" in
+    d) PORT="${OPTARG}" ;;
+    h) usage; exit 0 ;;
+    *) usage; exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
 INPUT_PATH=${1:-}
 if [[ -z "${INPUT_PATH}" ]]; then
-  echo "Usage: $0 path/to/firmware.(hex|elf)"
+  usage
   exit 1
 fi
 
 MCU=${MCU:-atmega328p}
-PORT=${PORT:-/dev/ttyUSB0}
 PROGRAMMER=${PROGRAMMER:-arduino}
 BAUD=${BAUD:-57600}
 AVRDUDE=${AVRDUDE:-avrdude}
