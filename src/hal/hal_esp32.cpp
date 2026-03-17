@@ -61,6 +61,7 @@ void hal_spi_init(void) {
     spi.beginTransaction(spi_settings_fast);
 }
 
+
 void hal_spi_set_speed_fast(void) {
     spi.endTransaction();
     spi.beginTransaction(spi_settings_fast);
@@ -77,6 +78,23 @@ uint8_t hal_spi_transfer(uint8_t data) {
 
 void hal_spi_write(uint8_t data) {
     spi.transfer(data);
+}
+
+void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+    if (!data || len == 0) {
+        return;
+    }
+    spi.transferBytes((uint8_t *)data, nullptr, len);
+}
+
+void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+    if (!data || len == 0) {
+        return;
+    }
+    static uint8_t ff = 0xFF;
+    for (uint16_t i = 0; i < len; i++) {
+        data[i] = spi.transfer(ff);
+    }
 }
 
 void hal_uart_init(void) {

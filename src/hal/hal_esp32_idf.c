@@ -36,7 +36,7 @@
 #define HAL_ESP32_SD_CS 27
 #endif
 
-#define SPI_FAST_HZ 20000000
+#define SPI_FAST_HZ 40000000
 #define SPI_SLOW_HZ 400000
 
 static spi_device_handle_t spi_dev = NULL;
@@ -50,7 +50,7 @@ static void spi_setup(int clock_hz) {
             .sclk_io_num = HAL_ESP32_SPI_SCK,
             .quadwp_io_num = -1,
             .quadhd_io_num = -1,
-            .max_transfer_sz = 0,
+            .max_transfer_sz = 4096,
         };
         (void)spi_bus_initialize(VSPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
         spi_ready = 1;
@@ -108,6 +108,7 @@ void hal_spi_set_speed_very_slow(void) {
     spi_setup(SPI_SLOW_HZ);
 }
 
+
 uint8_t hal_spi_transfer(uint8_t data) {
     uint8_t rx = 0xFF;
     spi_transaction_t t = {0};
@@ -123,6 +124,49 @@ void hal_spi_write(uint8_t data) {
     t.length = 8;
     t.tx_buffer = &data;
     (void)spi_device_transmit(spi_dev, &t);
+}
+
+void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+    if (!data || len == 0) {
+        return;
+    }
+    uint16_t remaining = len;
+    uint16_t offset = 0;
+    while (remaining) {
+        uint16_t chunk = remaining > 4096 ? 4096 : remaining;
+        spi_transaction_t t = {0};
+        t.length = (size_t)chunk * 8u;
+        t.tx_buffer = data + offset;
+        (void)spi_device_transmit(spi_dev, &t);
+        remaining = (uint16_t)(remaining - chunk);
+        offset = (uint16_t)(offset + chunk);
+    }
+}
+
+void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+    if (!data || len == 0) {
+        return;
+    }
+    static uint8_t ff_buf[256];
+    static uint8_t init = 0;
+    if (!init) {
+        for (uint16_t i = 0; i < sizeof(ff_buf); i++) {
+            ff_buf[i] = 0xFF;
+        }
+        init = 1;
+    }
+    uint16_t remaining = len;
+    uint16_t offset = 0;
+    while (remaining) {
+        uint16_t chunk = remaining > sizeof(ff_buf) ? (uint16_t)sizeof(ff_buf) : remaining;
+        spi_transaction_t t = {0};
+        t.length = (size_t)chunk * 8u;
+        t.tx_buffer = ff_buf;
+        t.rx_buffer = data + offset;
+        (void)spi_device_transmit(spi_dev, &t);
+        remaining = (uint16_t)(remaining - chunk);
+        offset = (uint16_t)(offset + chunk);
+    }
 }
 
 void hal_uart_init(void) {

@@ -11,6 +11,8 @@ void hal_spi_set_speed_fast(void);
 void hal_spi_set_speed_very_slow(void);
 uint8_t hal_spi_transfer(uint8_t data);
 void hal_spi_write(uint8_t data);
+void hal_spi_write_buffer(const uint8_t *data, uint16_t len);
+void hal_spi_read_buffer(uint8_t *data, uint16_t len);
 
 void hal_uart_init(void);
 void hal_uart_putc(char c);

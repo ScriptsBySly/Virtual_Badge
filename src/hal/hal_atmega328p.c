@@ -90,6 +90,18 @@ void hal_spi_write(uint8_t data) {
     (void)hal_spi_transfer(data);
 }
 
+void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+    for (uint16_t i = 0; i < len; i++) {
+        hal_spi_write(data[i]);
+    }
+}
+
+void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+    for (uint16_t i = 0; i < len; i++) {
+        data[i] = hal_spi_transfer(0xFF);
+    }
+}
+
 void hal_uart_init(void) {
     UBRR0H = UBRRH_VALUE;
     UBRR0L = UBRRL_VALUE;
