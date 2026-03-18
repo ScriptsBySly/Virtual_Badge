@@ -7,50 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/************************************************
-* card_reader_state_reset
-* Clears state fields and sets default register values.
-* Parameters: state = card reader instance to reset.
-* Returns: void.
-***************************************************/
-static void card_reader_state_reset(card_reader_state_t *state)
-{
-    /* Avoid touching memory when the caller passes NULL. */
-    if (!state)
-    {
-        return;
-    }
-    /* Clear state and apply known default register values. */
-    memset(state, 0, sizeof(*state));
-    state->regs.sd_last_cmd0_r1 = CARD_READER_SD_R1_NO_RESPONSE;
-    state->regs.sd_last_cmd8_r1 = CARD_READER_SD_R1_NO_RESPONSE;
-    state->regs.sd_last_acmd41_r1 = CARD_READER_SD_R1_NO_RESPONSE;
-    state->regs.sd_last_cmd58_r1 = CARD_READER_SD_R1_NO_RESPONSE;
-}
-
-typedef enum {
-    SD_R1_STATE_IDLE = 0x01,
-    SD_R1_STATE_READY = 0x00,
-    SD_R1_STATE_ILLEGAL_CMD = 0x04,
-    SD_R1_STATE_CRC_ERROR = 0x08,
-    SD_R1_STATE_ERASE_RESET = 0x02,
-    SD_R1_STATE_ADDRESS_ERROR = 0x20,
-    SD_R1_STATE_PARAMETER_ERROR = 0x40,
-} sd_r1_state_t;
-
-typedef enum {
-    SD_CMD8_VOLTAGE_27_36 = 0x01,
-} sd_cmd8_voltage_t;
-
-typedef enum {
-    SD_CMD8_CHECK_PATTERN = 0xAA,
-} sd_cmd8_pattern_t;
-
-typedef enum {
-    SD_OCR_POWER_UP_STATUS = 0x80,
-    SD_OCR_CCS = 0x40,
-} sd_ocr_bit_t;
-
 #define CARD_READER_SD_R1_NO_RESPONSE 0xFF
 #define CARD_READER_SD_DUMMY_BYTE 0xFF
 #define CARD_READER_SD_INIT_DELAY_MS 500
@@ -79,6 +35,49 @@ typedef enum {
 #define CARD_READER_ACMD41_ATTEMPTS 8000
 #define CARD_READER_CMD1_ATTEMPTS 5000
 
+typedef enum {
+    SD_R1_STATE_IDLE = 0x01,
+    SD_R1_STATE_READY = 0x00,
+    SD_R1_STATE_ILLEGAL_CMD = 0x04,
+    SD_R1_STATE_CRC_ERROR = 0x08,
+    SD_R1_STATE_ERASE_RESET = 0x02,
+    SD_R1_STATE_ADDRESS_ERROR = 0x20,
+    SD_R1_STATE_PARAMETER_ERROR = 0x40,
+} sd_r1_state_t;
+
+typedef enum {
+    SD_CMD8_VOLTAGE_27_36 = 0x01,
+} sd_cmd8_voltage_t;
+
+typedef enum {
+    SD_CMD8_CHECK_PATTERN = 0xAA,
+} sd_cmd8_pattern_t;
+
+typedef enum {
+    SD_OCR_POWER_UP_STATUS = 0x80,
+    SD_OCR_CCS = 0x40,
+} sd_ocr_bit_t;
+
+/************************************************
+* card_reader_state_reset
+* Clears state fields and sets default register values.
+* Parameters: state = card reader instance to reset.
+* Returns: void.
+***************************************************/
+static void card_reader_state_reset(card_reader_state_t *state)
+{
+    /* Avoid touching memory when the caller passes NULL. */
+    if (!state)
+    {
+        return;
+    }
+    /* Clear state and apply known default register values. */
+    memset(state, 0, sizeof(*state));
+    state->regs.sd_last_cmd0_r1 = CARD_READER_SD_R1_NO_RESPONSE;
+    state->regs.sd_last_cmd8_r1 = CARD_READER_SD_R1_NO_RESPONSE;
+    state->regs.sd_last_acmd41_r1 = CARD_READER_SD_R1_NO_RESPONSE;
+    state->regs.sd_last_cmd58_r1 = CARD_READER_SD_R1_NO_RESPONSE;
+}
 
 /************************************************
 * sd_init
@@ -121,10 +120,10 @@ static uint8_t sd_init(card_reader_state_t *state)
 
     /* CMD8: check voltage range and echo pattern for SD v2 cards. */
     r1 = card_reader_spi_send_cmd(CARD_READER_SD_CMD8,
-    CARD_READER_SD_CMD8_ARG,
-    CARD_READER_SD_CMD8_CRC,
-    cmd8_response,
-    0);
+                                  CARD_READER_SD_CMD8_ARG,
+                                  CARD_READER_SD_CMD8_CRC,
+                                  cmd8_response,
+                                  0);
     state->regs.sd_last_cmd8_r1 = r1;
     for (uint8_t i = 0; i < CARD_READER_CMD8_R7_BYTES; i++)
     {
@@ -140,7 +139,9 @@ static uint8_t sd_init(card_reader_state_t *state)
         for (uint16_t i = 0; i < CARD_READER_ACMD41_ATTEMPTS; i++)
         {
             uint8_t r1_55 = card_reader_spi_send_cmd(CARD_READER_SD_CMD55, 0, CARD_READER_SD_CMD_CRC_DUMMY, 0, 0);
+            (void)r1_55;
             card_reader_spi_transfer_byte(CARD_READER_SD_DUMMY_BYTE);
+            /* Issue ACMD41 with HCS to request SD v2 initialization. */
             r1 = card_reader_spi_send_cmd(CARD_READER_SD_ACMD41,
                                           CARD_READER_SD_ACMD41_ARG_HCS,
                                           CARD_READER_SD_CMD_CRC_DUMMY,
@@ -206,6 +207,7 @@ static uint8_t sd_init(card_reader_state_t *state)
         for (uint16_t i = 0; i < CARD_READER_ACMD41_ATTEMPTS; i++)
         {
             uint8_t r1_55 = card_reader_spi_send_cmd(CARD_READER_SD_CMD55, 0, CARD_READER_SD_CMD_CRC_DUMMY, 0, 0);
+            (void)r1_55;
             card_reader_spi_transfer_byte(CARD_READER_SD_DUMMY_BYTE);
             r1 = card_reader_spi_send_cmd(CARD_READER_SD_ACMD41, 0, CARD_READER_SD_CMD_CRC_DUMMY, 0, 0);
             card_reader_spi_deselect();

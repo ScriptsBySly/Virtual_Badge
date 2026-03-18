@@ -17,7 +17,8 @@
 #define BAUD 115200UL
 #endif
 
-#define SPI_FAST_HZ 40000000
+#define SPI_SD_FAST_HZ 40000000
+#define SPI_TFT_FAST_HZ 26000000
 #define SPI_SLOW_HZ 400000
 
 static spi_device_handle_t tft_dev = NULL;
@@ -113,19 +114,19 @@ void hal_delay_ms(uint16_t ms) {
 }
 
 void hal_spi_tft_init(void) {
-    spi_setup_tft(SPI_FAST_HZ);
+    spi_setup_tft(SPI_TFT_FAST_HZ);
 }
 
 void hal_spi_sd_init(void) {
-    spi_setup_sd(SPI_FAST_HZ);
+    spi_setup_sd(SPI_SD_FAST_HZ);
 }
 
 void hal_spi_tft_set_speed_fast(void) {
-    spi_setup_tft(SPI_FAST_HZ);
+    spi_setup_tft(SPI_TFT_FAST_HZ);
 }
 
 void hal_spi_sd_set_speed_fast(void) {
-    spi_setup_sd(SPI_FAST_HZ);
+    spi_setup_sd(SPI_SD_FAST_HZ);
 }
 
 void hal_spi_sd_set_speed_very_slow(void) {
