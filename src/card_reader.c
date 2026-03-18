@@ -104,27 +104,27 @@ static uint32_t fat32_root_cluster = 0;
 static void sd_deselect(void) {
     hal_tft_cs_high();
     hal_sd_cs_high();
-    hal_spi_transfer(0xFF);
+    hal_spi_sd_transfer(0xFF);
 }
 
 static void sd_idle_clocks(uint8_t count) {
     hal_tft_cs_high();
     hal_sd_cs_high();
     for (uint8_t i = 0; i < count; i++) {
-        hal_spi_transfer(0xFF);
+        hal_spi_sd_transfer(0xFF);
     }
 }
 
 static uint8_t sd_select(void) {
     hal_tft_cs_high();
     hal_sd_cs_low();
-    hal_spi_transfer(0xFF);
+    hal_spi_sd_transfer(0xFF);
     return 1;
 }
 
 static uint8_t sd_wait_ready(uint16_t timeout_ms) {
     while (timeout_ms--) {
-        if (hal_spi_transfer(0xFF) == 0xFF) {
+        if (hal_spi_sd_transfer(0xFF) == 0xFF) {
             return 1;
         }
         hal_delay_ms(1);
@@ -139,16 +139,16 @@ static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg, uint8_t crc, uint8_t *r7) 
         return 0xFF;
     }
 
-    hal_spi_transfer(0x40 | cmd);
-    hal_spi_transfer((uint8_t)(arg >> 24));
-    hal_spi_transfer((uint8_t)(arg >> 16));
-    hal_spi_transfer((uint8_t)(arg >> 8));
-    hal_spi_transfer((uint8_t)(arg));
-    hal_spi_transfer(crc);
+    hal_spi_sd_transfer(0x40 | cmd);
+    hal_spi_sd_transfer((uint8_t)(arg >> 24));
+    hal_spi_sd_transfer((uint8_t)(arg >> 16));
+    hal_spi_sd_transfer((uint8_t)(arg >> 8));
+    hal_spi_sd_transfer((uint8_t)(arg));
+    hal_spi_sd_transfer(crc);
 
     uint8_t r1 = 0xFF;
     for (uint8_t i = 0; i < 100; i++) {
-        r1 = hal_spi_transfer(0xFF);
+        r1 = hal_spi_sd_transfer(0xFF);
         if ((r1 & 0x80) == 0) {
             break;
         }
@@ -156,7 +156,7 @@ static uint8_t sd_send_cmd(uint8_t cmd, uint32_t arg, uint8_t crc, uint8_t *r7) 
 
     if (r7) {
         for (uint8_t i = 0; i < 4; i++) {
-            r7[i] = hal_spi_transfer(0xFF);
+            r7[i] = hal_spi_sd_transfer(0xFF);
         }
     }
     return r1;
@@ -167,16 +167,16 @@ static uint8_t sd_send_cmd_noselect(uint8_t cmd, uint32_t arg, uint8_t crc, uint
         return 0xFF;
     }
 
-    hal_spi_transfer(0x40 | cmd);
-    hal_spi_transfer((uint8_t)(arg >> 24));
-    hal_spi_transfer((uint8_t)(arg >> 16));
-    hal_spi_transfer((uint8_t)(arg >> 8));
-    hal_spi_transfer((uint8_t)(arg));
-    hal_spi_transfer(crc);
+    hal_spi_sd_transfer(0x40 | cmd);
+    hal_spi_sd_transfer((uint8_t)(arg >> 24));
+    hal_spi_sd_transfer((uint8_t)(arg >> 16));
+    hal_spi_sd_transfer((uint8_t)(arg >> 8));
+    hal_spi_sd_transfer((uint8_t)(arg));
+    hal_spi_sd_transfer(crc);
 
     uint8_t r1 = 0xFF;
     for (uint8_t i = 0; i < 100; i++) {
-        r1 = hal_spi_transfer(0xFF);
+        r1 = hal_spi_sd_transfer(0xFF);
         if ((r1 & 0x80) == 0) {
             break;
         }
@@ -184,7 +184,7 @@ static uint8_t sd_send_cmd_noselect(uint8_t cmd, uint32_t arg, uint8_t crc, uint
 
     if (r7) {
         for (uint8_t i = 0; i < 4; i++) {
-            r7[i] = hal_spi_transfer(0xFF);
+            r7[i] = hal_spi_sd_transfer(0xFF);
         }
     }
     return r1;
@@ -192,7 +192,7 @@ static uint8_t sd_send_cmd_noselect(uint8_t cmd, uint32_t arg, uint8_t crc, uint
 
 static uint8_t sd_init(void) {
     hal_sd_cs_high();
-    hal_spi_set_speed_very_slow();
+    hal_spi_sd_set_speed_very_slow();
     uint8_t ok = 0;
 
     hal_delay_ms(500);
@@ -235,7 +235,7 @@ static uint8_t sd_init(void) {
         uint16_t no_resp = 0;
         for (uint16_t i = 0; i < 8000; i++) {
             uint8_t r1_55 = sd_send_cmd(55, 0, 0x01, 0);
-            hal_spi_transfer(0xFF);
+            hal_spi_sd_transfer(0xFF);
             r1 = sd_send_cmd(41, 0x40000000, 0x01, 0);
             sd_deselect();
             sd_last_acmd41_r1 = r1;
@@ -289,7 +289,7 @@ static uint8_t sd_init(void) {
         // SD v1 or MMC
         for (uint16_t i = 0; i < 8000; i++) {
             uint8_t r1_55 = sd_send_cmd(55, 0, 0x01, 0);
-            hal_spi_transfer(0xFF);
+            hal_spi_sd_transfer(0xFF);
             r1 = sd_send_cmd(41, 0, 0x01, 0);
             sd_deselect();
             sd_last_acmd41_r1 = r1;
@@ -333,7 +333,7 @@ static uint8_t sd_init(void) {
 
 out:
     sd_deselect();
-    hal_spi_set_speed_fast();
+    hal_spi_sd_set_speed_fast();
     return ok;
 }
 
@@ -341,9 +341,9 @@ static uint8_t sd_read_block(uint32_t lba, uint8_t *buf) {
     uint32_t addr = sd_is_sdhc ? lba : (lba << 9);
     for (uint8_t attempt = 0; attempt < 2; attempt++) {
         if (attempt == 0) {
-            hal_spi_set_speed_fast();
+            hal_spi_sd_set_speed_fast();
         } else {
-            hal_spi_set_speed_very_slow();
+            hal_spi_sd_set_speed_very_slow();
         }
         uint8_t r1 = sd_send_cmd(17, addr, 0x01, 0);
         if (r1 != 0x00) {
@@ -354,20 +354,20 @@ static uint8_t sd_read_block(uint32_t lba, uint8_t *buf) {
         uint16_t timeout = 50000;
         uint8_t token;
         do {
-            token = hal_spi_transfer(0xFF);
+            token = hal_spi_sd_transfer(0xFF);
         } while (token == 0xFF && --timeout);
         if (token != 0xFE) {
             sd_deselect();
             continue;
         }
-        hal_spi_read_buffer(buf, 512);
+        hal_spi_sd_read_buffer(buf, 512);
         uint8_t crc[2];
-        hal_spi_read_buffer(crc, 2);
+        hal_spi_sd_read_buffer(crc, 2);
         sd_deselect();
-        hal_spi_set_speed_fast();
+        hal_spi_sd_set_speed_fast();
         return 1;
     }
-    hal_spi_set_speed_fast();
+    hal_spi_sd_set_speed_fast();
     return 0;
 }
 
@@ -742,10 +742,10 @@ static void sd_probe(void) {
     hal_uart_put_hex8(hal_miso_state());
     hal_uart_puts("\r\n CS high, xfer=0x");
     hal_sd_cs_high();
-    hal_uart_put_hex8(hal_spi_transfer(0xFF));
+    hal_uart_put_hex8(hal_spi_sd_transfer(0xFF));
     hal_uart_puts("\r\n CS low,  xfer=0x");
     hal_sd_cs_low();
-    hal_uart_put_hex8(hal_spi_transfer(0xFF));
+    hal_uart_put_hex8(hal_spi_sd_transfer(0xFF));
     hal_sd_cs_high();
     hal_uart_puts("\r\n");
 }

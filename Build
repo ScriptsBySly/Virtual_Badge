@@ -10,7 +10,7 @@ TARGET="nano"
 CLEAN=0
 
 usage() {
-  echo "Usage: $0 [-t nano|esp32] [-c]"
+  echo "Usage: $0 [-t nano|esp32|esp32s3] [-c]"
 }
 
 while getopts ":t:ch" opt; do
@@ -46,6 +46,25 @@ case "${TARGET}" in
       echo "IDF_PATH not set. Run: . /path/to/esp-idf/export.sh"
       exit 1
     fi
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 build
+    mkdir -p "${OUTPUT_DIR}"
+    for f in \
+      "${BUILD_DIR}/virtual_badge_esp32.bin" \
+      "${BUILD_DIR}/virtual_badge_esp32.elf" \
+      "${BUILD_DIR}/virtual_badge_esp32.map" \
+      "${BUILD_DIR}/bootloader/bootloader.bin" \
+      "${BUILD_DIR}/partition_table/partition-table.bin"; do
+      if [[ -f "${f}" ]]; then
+        cp -f "${f}" "${OUTPUT_DIR}/"
+      fi
+    done
+    ;;
+  esp32s3|ESP32S3|esp32-s3|ESP32-S3)
+    if [[ -z "${IDF_PATH:-}" ]]; then
+      echo "IDF_PATH not set. Run: . /path/to/esp-idf/export.sh"
+      exit 1
+    fi
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 set-target esp32s3
     idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 build
     mkdir -p "${OUTPUT_DIR}"
     for f in \

@@ -6,13 +6,17 @@ void hal_init(void);
 
 void hal_delay_ms(uint16_t ms);
 
-void hal_spi_init(void);
-void hal_spi_set_speed_fast(void);
-void hal_spi_set_speed_very_slow(void);
-uint8_t hal_spi_transfer(uint8_t data);
-void hal_spi_write(uint8_t data);
-void hal_spi_write_buffer(const uint8_t *data, uint16_t len);
-void hal_spi_read_buffer(uint8_t *data, uint16_t len);
+void hal_spi_tft_init(void);
+void hal_spi_sd_init(void);
+
+void hal_spi_tft_set_speed_fast(void);
+void hal_spi_tft_write(uint8_t data);
+void hal_spi_tft_write_buffer(const uint8_t *data, uint16_t len);
+
+void hal_spi_sd_set_speed_fast(void);
+void hal_spi_sd_set_speed_very_slow(void);
+uint8_t hal_spi_sd_transfer(uint8_t data);
+void hal_spi_sd_read_buffer(uint8_t *data, uint16_t len);
 
 void hal_uart_init(void);
 void hal_uart_putc(char c);

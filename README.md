@@ -66,6 +66,28 @@ HAL file (ESP-IDF): `src/hal/hal_esp32_idf.c`
 **Build selection**
 - Set `HAL_MCU=esp32` to use the ESP32 HAL and `HAL_MCU=atmega328p` for Nano.
 
+### ESP32-S3-Zero (Waveshare)
+HAL file (ESP-IDF): `src/hal/hal_esp32_idf.c`
+
+**Default SPI pins (dual-bus)**
+- **TFT SPI (SPI2)**: `SCK` → GPIO12, `MOSI` → GPIO11, `MISO` → GPIO13
+- **SD SPI (SPI3)**: `SCK` → GPIO6, `MOSI` → GPIO5, `MISO` → GPIO4
+
+**Default control pins (overridable)**
+- `TFT_CS` → GPIO10
+- `TFT_DC` → GPIO9
+- `TFT_RST` → GPIO8
+- `SD_CS` → GPIO7
+
+**Notes**
+- GPIO21 is used for the onboard WS2812 LED. Avoid it for SPI.
+- These defaults are chosen from the ESP32-S3-Zero pinout.
+
+**Build selection**
+- Set target once: `idf.py set-target esp32s3`
+- Build: `./Build -t esp32s3`
+- Flash: `scripts/flash_esp32.sh -c esp32s3 -d /dev/ttyACM0`
+
 ## SD Card (SPI)
 Files must be FAT32 (exFAT is not supported). Place images in the root of the card.
 

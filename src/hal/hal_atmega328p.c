@@ -33,7 +33,8 @@
 #define SD_CS_PIN   PD4
 
 void hal_init(void) {
-    hal_spi_init();
+    hal_spi_tft_init();
+    hal_spi_sd_init();
     hal_uart_init();
 
     // TFT control pins as output
@@ -56,7 +57,7 @@ void hal_delay_ms(uint16_t ms) {
     }
 }
 
-void hal_spi_init(void) {
+static void hal_spi_shared_init(void) {
     // MOSI, SCK, SS as output. MISO input.
     DDRB |= (1 << PB3) | (1 << PB5) | (1 << PB2);
     DDRB &= ~(1 << PB4);
@@ -67,38 +68,58 @@ void hal_spi_init(void) {
     SPSR = 0;
 }
 
-void hal_spi_set_speed_very_slow(void) {
+void hal_spi_tft_init(void) {
+    hal_spi_shared_init();
+}
+
+void hal_spi_sd_init(void) {
+    hal_spi_shared_init();
+}
+
+static void hal_spi_shared_set_speed_very_slow(void) {
     // fosc/256
     SPCR |= (1 << SPR1) | (1 << SPR0);
     SPSR &= ~(1 << SPI2X);
 }
 
-void hal_spi_set_speed_fast(void) {
+static void hal_spi_shared_set_speed_fast(void) {
     // fosc/2
     SPCR &= ~((1 << SPR1) | (1 << SPR0));
     SPSR |= (1 << SPI2X);
 }
 
-uint8_t hal_spi_transfer(uint8_t data) {
+void hal_spi_tft_set_speed_fast(void) {
+    hal_spi_shared_set_speed_fast();
+}
+
+void hal_spi_sd_set_speed_fast(void) {
+    hal_spi_shared_set_speed_fast();
+}
+
+void hal_spi_sd_set_speed_very_slow(void) {
+    hal_spi_shared_set_speed_very_slow();
+}
+
+uint8_t hal_spi_sd_transfer(uint8_t data) {
     SPDR = data;
     while (!(SPSR & (1 << SPIF))) {
     }
     return SPDR;
 }
 
-void hal_spi_write(uint8_t data) {
-    (void)hal_spi_transfer(data);
+void hal_spi_tft_write(uint8_t data) {
+    (void)hal_spi_sd_transfer(data);
 }
 
-void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+void hal_spi_tft_write_buffer(const uint8_t *data, uint16_t len) {
     for (uint16_t i = 0; i < len; i++) {
-        hal_spi_write(data[i]);
+        hal_spi_tft_write(data[i]);
     }
 }
 
-void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+void hal_spi_sd_read_buffer(uint8_t *data, uint16_t len) {
     for (uint16_t i = 0; i < len; i++) {
-        data[i] = hal_spi_transfer(0xFF);
+        data[i] = hal_spi_sd_transfer(0xFF);
     }
 }
 

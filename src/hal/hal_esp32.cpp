@@ -3,43 +3,23 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#include "hal_esp32_target_select.h"
+
 #ifndef BAUD
 #define BAUD 115200UL
-#endif
-
-#ifndef HAL_ESP32_SPI_SCK
-#define HAL_ESP32_SPI_SCK 18
-#endif
-#ifndef HAL_ESP32_SPI_MISO
-#define HAL_ESP32_SPI_MISO 19
-#endif
-#ifndef HAL_ESP32_SPI_MOSI
-#define HAL_ESP32_SPI_MOSI 23
-#endif
-
-#ifndef HAL_ESP32_TFT_CS
-#define HAL_ESP32_TFT_CS 16
-#endif
-#ifndef HAL_ESP32_TFT_DC
-#define HAL_ESP32_TFT_DC 17
-#endif
-#ifndef HAL_ESP32_TFT_RST
-#define HAL_ESP32_TFT_RST 25
-#endif
-
-#ifndef HAL_ESP32_SD_CS
-#define HAL_ESP32_SD_CS 27
 #endif
 
 static SPIClass spi(VSPI);
 static SPISettings spi_settings_fast(40000000, MSBFIRST, SPI_MODE0);
 static SPISettings spi_settings_slow(1000000, MSBFIRST, SPI_MODE0);
+static uint8_t spi_ready = 0;
 
 extern "C" {
 
 void hal_init(void) {
     Serial.begin(BAUD);
-    hal_spi_init();
+    hal_spi_tft_init();
+    hal_spi_sd_init();
 
     pinMode(HAL_ESP32_TFT_CS, OUTPUT);
     pinMode(HAL_ESP32_TFT_DC, OUTPUT);
@@ -56,38 +36,57 @@ void hal_delay_ms(uint16_t ms) {
     delay(ms);
 }
 
-void hal_spi_init(void) {
+static void spi_begin_if_needed(void) {
+    if (spi_ready) {
+        return;
+    }
     spi.begin(HAL_ESP32_SPI_SCK, HAL_ESP32_SPI_MISO, HAL_ESP32_SPI_MOSI, -1);
-    spi.beginTransaction(spi_settings_fast);
+    spi_ready = 1;
 }
 
-
-void hal_spi_set_speed_fast(void) {
+void hal_spi_tft_init(void) {
+    spi_begin_if_needed();
     spi.endTransaction();
     spi.beginTransaction(spi_settings_fast);
 }
 
-void hal_spi_set_speed_very_slow(void) {
+void hal_spi_sd_init(void) {
+    spi_begin_if_needed();
+    spi.endTransaction();
+    spi.beginTransaction(spi_settings_fast);
+}
+
+void hal_spi_tft_set_speed_fast(void) {
+    spi.endTransaction();
+    spi.beginTransaction(spi_settings_fast);
+}
+
+void hal_spi_sd_set_speed_fast(void) {
+    spi.endTransaction();
+    spi.beginTransaction(spi_settings_fast);
+}
+
+void hal_spi_sd_set_speed_very_slow(void) {
     spi.endTransaction();
     spi.beginTransaction(spi_settings_slow);
 }
 
-uint8_t hal_spi_transfer(uint8_t data) {
+uint8_t hal_spi_sd_transfer(uint8_t data) {
     return spi.transfer(data);
 }
 
-void hal_spi_write(uint8_t data) {
+void hal_spi_tft_write(uint8_t data) {
     spi.transfer(data);
 }
 
-void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+void hal_spi_tft_write_buffer(const uint8_t *data, uint16_t len) {
     if (!data || len == 0) {
         return;
     }
     spi.transferBytes((uint8_t *)data, nullptr, len);
 }
 
-void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+void hal_spi_sd_read_buffer(uint8_t *data, uint16_t len) {
     if (!data || len == 0) {
         return;
     }
@@ -134,7 +133,7 @@ void hal_tft_rst_low(void) { digitalWrite(HAL_ESP32_TFT_RST, LOW); }
 void hal_tft_rst_high(void) { digitalWrite(HAL_ESP32_TFT_RST, HIGH); }
 
 uint8_t hal_miso_state(void) {
-    return digitalRead(HAL_ESP32_SPI_MISO) ? 1 : 0;
+    return digitalRead(HAL_ESP32_SD_SPI_MISO) ? 1 : 0;
 }
 
 } // extern "C"

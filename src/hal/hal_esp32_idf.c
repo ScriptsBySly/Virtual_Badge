@@ -8,57 +8,57 @@
 #include "esp_err.h"
 #include <string.h>
 
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#include "hal_esp32_target_esp32s3.h"
+#else
+#include "hal_esp32_target_esp32.h"
+#endif
+
 #ifndef BAUD
 #define BAUD 115200UL
-#endif
-
-#ifndef HAL_ESP32_SPI_SCK
-#define HAL_ESP32_SPI_SCK 18
-#endif
-#ifndef HAL_ESP32_SPI_MISO
-#define HAL_ESP32_SPI_MISO 19
-#endif
-#ifndef HAL_ESP32_SPI_MOSI
-#define HAL_ESP32_SPI_MOSI 23
-#endif
-
-#ifndef HAL_ESP32_TFT_CS
-#define HAL_ESP32_TFT_CS 16
-#endif
-#ifndef HAL_ESP32_TFT_DC
-#define HAL_ESP32_TFT_DC 17
-#endif
-#ifndef HAL_ESP32_TFT_RST
-#define HAL_ESP32_TFT_RST 25
-#endif
-
-#ifndef HAL_ESP32_SD_CS
-#define HAL_ESP32_SD_CS 27
 #endif
 
 #define SPI_FAST_HZ 40000000
 #define SPI_SLOW_HZ 400000
 
-static spi_device_handle_t spi_dev = NULL;
-static uint8_t spi_ready = 0;
+static spi_device_handle_t tft_dev = NULL;
+static spi_device_handle_t sd_dev = NULL;
+static uint8_t spi2_ready = 0;
+static uint8_t spi3_ready = 0;
 
-static void spi_setup(int clock_hz) {
-    if (!spi_ready) {
-        spi_bus_config_t buscfg = {
-            .miso_io_num = HAL_ESP32_SPI_MISO,
-            .mosi_io_num = HAL_ESP32_SPI_MOSI,
-            .sclk_io_num = HAL_ESP32_SPI_SCK,
-            .quadwp_io_num = -1,
-            .quadhd_io_num = -1,
-            .max_transfer_sz = 4096,
-        };
-        (void)spi_bus_initialize(VSPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
-        spi_ready = 1;
+static uint8_t *spi_ready_flag(spi_host_device_t host) {
+    switch (host) {
+        case SPI2_HOST:
+            return &spi2_ready;
+        case SPI3_HOST:
+            return &spi3_ready;
+        default:
+            return &spi3_ready;
     }
+}
 
-    if (spi_dev) {
-        (void)spi_bus_remove_device(spi_dev);
-        spi_dev = NULL;
+static void spi_bus_setup(spi_host_device_t host, int sck, int miso, int mosi) {
+    uint8_t *ready = spi_ready_flag(host);
+    if (*ready) {
+        return;
+    }
+    spi_bus_config_t buscfg = {
+        .miso_io_num = miso,
+        .mosi_io_num = mosi,
+        .sclk_io_num = sck,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,
+    };
+    (void)spi_bus_initialize(host, &buscfg, SPI_DMA_CH_AUTO);
+    *ready = 1;
+}
+
+static void spi_setup_tft(int clock_hz) {
+    spi_bus_setup(HAL_ESP32_TFT_SPI_HOST, HAL_ESP32_SPI_SCK, HAL_ESP32_SPI_MISO, HAL_ESP32_SPI_MOSI);
+    if (tft_dev) {
+        (void)spi_bus_remove_device(tft_dev);
+        tft_dev = NULL;
     }
 
     spi_device_interface_config_t devcfg = {
@@ -67,12 +67,29 @@ static void spi_setup(int clock_hz) {
         .spics_io_num = -1,
         .queue_size = 1,
     };
-    (void)spi_bus_add_device(VSPI_HOST, &devcfg, &spi_dev);
+    (void)spi_bus_add_device(HAL_ESP32_TFT_SPI_HOST, &devcfg, &tft_dev);
+}
+
+static void spi_setup_sd(int clock_hz) {
+    spi_bus_setup(HAL_ESP32_SD_SPI_HOST, HAL_ESP32_SD_SPI_SCK, HAL_ESP32_SD_SPI_MISO, HAL_ESP32_SD_SPI_MOSI);
+    if (sd_dev) {
+        (void)spi_bus_remove_device(sd_dev);
+        sd_dev = NULL;
+    }
+
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = clock_hz,
+        .mode = 0,
+        .spics_io_num = -1,
+        .queue_size = 1,
+    };
+    (void)spi_bus_add_device(HAL_ESP32_SD_SPI_HOST, &devcfg, &sd_dev);
 }
 
 void hal_init(void) {
     hal_uart_init();
-    hal_spi_init();
+    hal_spi_tft_init();
+    hal_spi_sd_init();
 
     gpio_config_t io_cfg = {
         .pin_bit_mask = (1ULL << HAL_ESP32_TFT_CS) |
@@ -96,37 +113,44 @@ void hal_delay_ms(uint16_t ms) {
     vTaskDelay(pdMS_TO_TICKS(ms));
 }
 
-void hal_spi_init(void) {
-    spi_setup(SPI_FAST_HZ);
+void hal_spi_tft_init(void) {
+    spi_setup_tft(SPI_FAST_HZ);
 }
 
-void hal_spi_set_speed_fast(void) {
-    spi_setup(SPI_FAST_HZ);
+void hal_spi_sd_init(void) {
+    spi_setup_sd(SPI_FAST_HZ);
 }
 
-void hal_spi_set_speed_very_slow(void) {
-    spi_setup(SPI_SLOW_HZ);
+void hal_spi_tft_set_speed_fast(void) {
+    spi_setup_tft(SPI_FAST_HZ);
 }
 
+void hal_spi_sd_set_speed_fast(void) {
+    spi_setup_sd(SPI_FAST_HZ);
+}
 
-uint8_t hal_spi_transfer(uint8_t data) {
+void hal_spi_sd_set_speed_very_slow(void) {
+    spi_setup_sd(SPI_SLOW_HZ);
+}
+
+uint8_t hal_spi_sd_transfer(uint8_t data) {
     uint8_t rx = 0xFF;
     spi_transaction_t t = {0};
     t.length = 8;
     t.tx_buffer = &data;
     t.rx_buffer = &rx;
-    (void)spi_device_transmit(spi_dev, &t);
+    (void)spi_device_transmit(sd_dev, &t);
     return rx;
 }
 
-void hal_spi_write(uint8_t data) {
+void hal_spi_tft_write(uint8_t data) {
     spi_transaction_t t = {0};
     t.length = 8;
     t.tx_buffer = &data;
-    (void)spi_device_transmit(spi_dev, &t);
+    (void)spi_device_transmit(tft_dev, &t);
 }
 
-void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
+void hal_spi_tft_write_buffer(const uint8_t *data, uint16_t len) {
     if (!data || len == 0) {
         return;
     }
@@ -137,13 +161,13 @@ void hal_spi_write_buffer(const uint8_t *data, uint16_t len) {
         spi_transaction_t t = {0};
         t.length = (size_t)chunk * 8u;
         t.tx_buffer = data + offset;
-        (void)spi_device_transmit(spi_dev, &t);
+        (void)spi_device_transmit(tft_dev, &t);
         remaining = (uint16_t)(remaining - chunk);
         offset = (uint16_t)(offset + chunk);
     }
 }
 
-void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
+void hal_spi_sd_read_buffer(uint8_t *data, uint16_t len) {
     if (!data || len == 0) {
         return;
     }
@@ -163,7 +187,7 @@ void hal_spi_read_buffer(uint8_t *data, uint16_t len) {
         t.length = (size_t)chunk * 8u;
         t.tx_buffer = ff_buf;
         t.rx_buffer = data + offset;
-        (void)spi_device_transmit(spi_dev, &t);
+        (void)spi_device_transmit(sd_dev, &t);
         remaining = (uint16_t)(remaining - chunk);
         offset = (uint16_t)(offset + chunk);
     }
@@ -218,5 +242,5 @@ void hal_tft_rst_low(void) { gpio_set_level(HAL_ESP32_TFT_RST, 0); }
 void hal_tft_rst_high(void) { gpio_set_level(HAL_ESP32_TFT_RST, 1); }
 
 uint8_t hal_miso_state(void) {
-    return gpio_get_level(HAL_ESP32_SPI_MISO) ? 1 : 0;
+    return gpio_get_level(HAL_ESP32_SD_SPI_MISO) ? 1 : 0;
 }

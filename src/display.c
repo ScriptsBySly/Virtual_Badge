@@ -13,14 +13,14 @@
 static void tft_write_cmd(uint8_t cmd) {
     hal_tft_dc_low();
     hal_tft_cs_low();
-    hal_spi_write(cmd);
+    hal_spi_tft_write(cmd);
     hal_tft_cs_high();
 }
 
 static void tft_write_data(uint8_t data) {
     hal_tft_dc_high();
     hal_tft_cs_low();
-    hal_spi_write(data);
+    hal_spi_tft_write(data);
     hal_tft_cs_high();
 }
 
@@ -89,7 +89,7 @@ static const uint8_t font5x7[96][5] = {
 };
 
 void display_init(void) {
-    hal_spi_set_speed_fast();
+    hal_spi_tft_set_speed_fast();
     tft_reset();
 
     // Basic ST7735 init sequence (common for 128x160)
@@ -125,7 +125,7 @@ void display_fill_color(uint16_t color) {
     uint16_t bytes = (uint16_t)(pixels * 2u);
     while (bytes) {
         uint16_t chunk = bytes > sizeof(buf) ? (uint16_t)sizeof(buf) : bytes;
-        hal_spi_write_buffer(buf, chunk);
+        hal_spi_tft_write_buffer(buf, chunk);
         bytes = (uint16_t)(bytes - chunk);
     }
     hal_tft_cs_high();
@@ -138,7 +138,7 @@ void display_set_addr_window(uint16_t width, uint16_t height) {
 void display_stream_bytes(const uint8_t *data, uint16_t len) {
     hal_tft_dc_high();
     hal_tft_cs_low();
-    hal_spi_write_buffer(data, len);
+    hal_spi_tft_write_buffer(data, len);
     hal_tft_cs_high();
 }
 
@@ -165,7 +165,7 @@ void display_draw_char(uint16_t x, uint16_t y, char c, uint16_t fg, uint16_t bg)
     tft_set_addr_window(x, y, (uint16_t)(x + 5u), (uint16_t)(y + 7u));
     hal_tft_dc_high();
     hal_tft_cs_low();
-    hal_spi_write_buffer(buf, sizeof(buf));
+    hal_spi_tft_write_buffer(buf, sizeof(buf));
     hal_tft_cs_high();
 }
 

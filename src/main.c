@@ -2,6 +2,10 @@
 #include "display.h"
 #include "hal/hal.h"
 
+#if defined(ESP_PLATFORM)
+#include "driver/gpio.h"
+#endif
+
 #ifndef TFT_WIDTH
 #define TFT_WIDTH 128u
 #endif
@@ -12,6 +16,14 @@
 #define FRAME_INTERVAL_MS 500u
 #define BLINK_STEP_MS 120u
 #define TICK_MS 20u
+
+#ifndef TEST_LED_BLINK
+#define TEST_LED_BLINK 0
+#endif
+
+#ifndef BLINK_GPIO
+#define BLINK_GPIO 2
+#endif
 
 #ifndef TEST_RGB_CYCLE
 #define TEST_RGB_CYCLE 0
@@ -194,6 +206,29 @@ static uint8_t blink_tick(blink_state_t *b, uint16_t tick_ms) {
 }
 
 static void app_run(void) {
+#if TEST_LED_BLINK
+#if defined(ESP_PLATFORM)
+    gpio_config_t io_cfg = {
+        .pin_bit_mask = (1ULL << BLINK_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_cfg);
+    while (1) {
+        gpio_set_level(BLINK_GPIO, 1);
+        hal_delay_ms(250);
+        gpio_set_level(BLINK_GPIO, 0);
+        hal_delay_ms(250);
+    }
+#else
+    while (1) {
+        hal_delay_ms(250);
+    }
+#endif
+#endif
+
     hal_init();
     display_init();
     display_fill_color(0x0000);
