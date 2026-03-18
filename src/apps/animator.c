@@ -9,7 +9,7 @@
 
 #if defined(ESP_PLATFORM)
 #define IMAGE_CACHE_ENABLE 1
-#define IMAGE_CACHE_SLOTS 3
+#define IMAGE_CACHE_SLOTS 10
 #else
 #define IMAGE_CACHE_ENABLE 0
 #define IMAGE_CACHE_SLOTS 0
@@ -144,4 +144,49 @@ uint8_t animator_draw_raw565(card_reader_state_t *dev,
     }
 #endif
     return card_reader_file_read(dev, name, expected, tft_stream_bytes_sd, NULL);
+}
+
+uint8_t animator_load_raw565(card_reader_state_t *dev,
+                             const char *name,
+                             uint16_t width,
+                             uint16_t height,
+                             uint8_t *dst,
+                             uint32_t dst_size) {
+    uint32_t expected = (uint32_t)width * (uint32_t)height * 2u;
+    if (!dev || !name || !dst || dst_size < expected) {
+        return 0;
+    }
+#if IMAGE_CACHE_ENABLE
+    image_cache_entry_t *hit = cache_find(name);
+    if (hit && hit->data && hit->size == expected) {
+        memcpy(dst, hit->data, expected);
+        return 1;
+    }
+
+    image_cache_entry_t *slot = cache_reserve(name, expected);
+    if (slot && slot->data) {
+        cache_sink_t sink = {
+            .dst = slot->data,
+            .offset = 0,
+            .size = expected,
+            .stream = 0,
+        };
+        uint8_t ok = card_reader_file_read(dev, name, expected, tft_stream_bytes_cache, &sink);
+        if (!ok) {
+            free(slot->data);
+            slot->data = NULL;
+            slot->valid = 0;
+            return 0;
+        }
+        memcpy(dst, slot->data, expected);
+        return 1;
+    }
+#endif
+    cache_sink_t sink = {
+        .dst = dst,
+        .offset = 0,
+        .size = expected,
+        .stream = 0,
+    };
+    return card_reader_file_read(dev, name, expected, tft_stream_bytes_cache, &sink);
 }

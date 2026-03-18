@@ -3,8 +3,14 @@
 #include "drivers/display.h"
 #include "hal/hal.h"
 
+#include <string.h>
+
 #if defined(ESP_PLATFORM)
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "esp_heap_caps.h"
 #endif
 
 #ifndef TFT_WIDTH
@@ -97,12 +103,90 @@ static void draw_error_screen(const char *name) {
     display_draw_text(0, 8, name, 0xFFFF, 0x0000);
 }
 
+#if defined(ESP_PLATFORM)
+typedef struct {
+    char name[13];
+    uint16_t width;
+    uint16_t height;
+} frame_request_t;
+
+typedef struct {
+    uint8_t *data;
+    uint32_t size;
+} frame_buffer_t;
+
+typedef struct {
+    card_reader_state_t *dev;
+    QueueHandle_t request_q;
+    QueueHandle_t ready_q;
+    QueueHandle_t free_q;
+    uint16_t width;
+    uint16_t height;
+} frame_tasks_ctx_t;
+
+static QueueHandle_t g_frame_req_q = NULL;
+static QueueHandle_t g_frame_ready_q = NULL;
+static QueueHandle_t g_frame_free_q = NULL;
+
+static void frame_loader_task(void *arg) {
+    frame_tasks_ctx_t *ctx = (frame_tasks_ctx_t *)arg;
+    const uint32_t expected = (uint32_t)ctx->width * (uint32_t)ctx->height * 2u;
+    for (;;) {
+        frame_request_t req;
+        frame_buffer_t *buf = NULL;
+        if (xQueueReceive(ctx->request_q, &req, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        if (xQueueReceive(ctx->free_q, &buf, portMAX_DELAY) != pdTRUE || !buf || !buf->data) {
+            continue;
+        }
+        uint8_t ok = animator_load_raw565(ctx->dev, req.name, req.width, req.height, buf->data, buf->size);
+        if (!ok) {
+            /* Keep previous frame in the buffer to avoid flashing black. */
+        }
+        xQueueSend(ctx->ready_q, &buf, portMAX_DELAY);
+    }
+}
+
+static void frame_display_task(void *arg) {
+    frame_tasks_ctx_t *ctx = (frame_tasks_ctx_t *)arg;
+    const uint32_t expected = (uint32_t)ctx->width * (uint32_t)ctx->height * 2u;
+    for (;;) {
+        frame_buffer_t *buf = NULL;
+        if (xQueueReceive(ctx->ready_q, &buf, portMAX_DELAY) != pdTRUE || !buf || !buf->data) {
+            continue;
+        }
+        display_set_addr_window(ctx->width, ctx->height);
+        display_stream_bytes(buf->data, (uint16_t)expected);
+        xQueueSend(ctx->free_q, &buf, portMAX_DELAY);
+    }
+}
+
+static uint8_t enqueue_frame(const char *name, uint16_t width, uint16_t height) {
+    if (!g_frame_req_q || !name) {
+        return 0;
+    }
+    frame_request_t req = {0};
+    for (uint8_t i = 0; i < sizeof(req.name) - 1 && name[i]; i++) {
+        req.name[i] = name[i];
+    }
+    req.width = width;
+    req.height = height;
+    return xQueueSend(g_frame_req_q, &req, 0) == pdTRUE;
+}
+#endif
+
 static uint8_t draw_frame(card_reader_state_t *dev,
                           const char *base,
                           const char *eyes,
                           const char *mouth) {
     char name[11];
     build_raw_name(name, base, eyes, mouth);
+#if defined(ESP_PLATFORM)
+    if (g_frame_req_q) {
+        return enqueue_frame(name, TFT_WIDTH, TFT_HEIGHT);
+    }
+#endif
     uint8_t ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok) {
         draw_error_screen(name);
@@ -141,6 +225,11 @@ static uint8_t draw_event_frame(card_reader_state_t *dev,
                                 event_type_t ev) {
     char name[13];
     build_event_name(name, base, ev);
+#if defined(ESP_PLATFORM)
+    if (g_frame_req_q) {
+        return enqueue_frame(name, TFT_WIDTH, TFT_HEIGHT);
+    }
+#endif
     uint8_t ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok) {
         draw_error_screen(name);
@@ -233,6 +322,40 @@ static void app_run(void) {
     display_init();
     display_fill_color(0x0000);
     card_reader_state_t *dev = card_reader_file_open();
+
+#if defined(ESP_PLATFORM) && !TEST_SCREEN_DEBUG && !TEST_RGB_CYCLE && !TEST_LED_BLINK
+    const uint32_t frame_bytes = (uint32_t)TFT_WIDTH * (uint32_t)TFT_HEIGHT * 2u;
+    frame_buffer_t buffers[2] = {0};
+    for (uint8_t i = 0; i < 2; i++) {
+        buffers[i].size = frame_bytes;
+        buffers[i].data = (uint8_t *)heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!buffers[i].data) {
+            buffers[i].data = (uint8_t *)malloc(frame_bytes);
+        }
+    }
+
+    g_frame_req_q = xQueueCreate(4, sizeof(frame_request_t));
+    g_frame_ready_q = xQueueCreate(2, sizeof(frame_buffer_t *));
+    g_frame_free_q = xQueueCreate(2, sizeof(frame_buffer_t *));
+
+    if (g_frame_req_q && g_frame_ready_q && g_frame_free_q) {
+        for (uint8_t i = 0; i < 2; i++) {
+            if (buffers[i].data) {
+                frame_buffer_t *buf = &buffers[i];
+                xQueueSend(g_frame_free_q, &buf, 0);
+            }
+        }
+        static frame_tasks_ctx_t ctx;
+        ctx.dev = dev;
+        ctx.request_q = g_frame_req_q;
+        ctx.ready_q = g_frame_ready_q;
+        ctx.free_q = g_frame_free_q;
+        ctx.width = TFT_WIDTH;
+        ctx.height = TFT_HEIGHT;
+        xTaskCreate(frame_loader_task, "frame_loader", 4096, &ctx, 5, NULL);
+        xTaskCreate(frame_display_task, "frame_display", 4096, &ctx, 5, NULL);
+    }
+#endif
 
 #if TEST_SCREEN_DEBUG
     uint16_t refresh_timer = 0;
