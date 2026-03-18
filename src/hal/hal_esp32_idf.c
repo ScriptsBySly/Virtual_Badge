@@ -6,7 +6,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
-#include <string.h>
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
 #include "hal_esp32_target_esp32s3.h"
@@ -208,13 +207,6 @@ void hal_uart_init(void) {
 
 void hal_uart_putc(char c) {
     uart_write_bytes(UART_NUM_0, &c, 1);
-}
-
-void hal_uart_puts(const char *s) {
-    if (!s) {
-        return;
-    }
-    uart_write_bytes(UART_NUM_0, s, (size_t)strlen(s));
 }
 
 void hal_uart_put_hex8(uint8_t v) {

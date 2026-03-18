@@ -1,12 +1,19 @@
 idf_component_register(
     SRCS
         "main.c"
-        "display.c"
-        "card_reader.c"
+        "drivers/display.c"
+        "drivers/card_reader/card_reader_api.c"
+        "drivers/card_reader/card_reader_core.c"
+        "drivers/card_reader/card_reader_fat.c"
+        "drivers/card_reader/card_reader_spi.c"
+        "apps/animator.c"
         "hal/hal_esp32_idf.c"
     INCLUDE_DIRS
         "."
         "hal"
+        "drivers"
+        "drivers/card_reader"
+        "apps"
     REQUIRES
         driver
 )

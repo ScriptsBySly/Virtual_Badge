@@ -141,12 +141,6 @@ void hal_uart_putc(char c) {
     UDR0 = (uint8_t)c;
 }
 
-void hal_uart_puts(const char *s) {
-    while (*s) {
-        hal_uart_putc(*s++);
-    }
-}
-
 void hal_uart_put_hex8(uint8_t v) {
     const char hex[] = "0123456789ABCDEF";
     hal_uart_putc(hex[(v >> 4) & 0xF]);

@@ -2,6 +2,10 @@
 
 #include <stdint.h>
 
+#ifndef HAL_HAS_SEPARATE_SPI_BUSES
+#define HAL_HAS_SEPARATE_SPI_BUSES 0
+#endif
+
 void hal_init(void);
 
 void hal_delay_ms(uint16_t ms);
@@ -20,7 +24,6 @@ void hal_spi_sd_read_buffer(uint8_t *data, uint16_t len);
 
 void hal_uart_init(void);
 void hal_uart_putc(char c);
-void hal_uart_puts(const char *s);
 void hal_uart_put_hex8(uint8_t v);
 uint8_t hal_uart_getc_nonblock(char *out);
 

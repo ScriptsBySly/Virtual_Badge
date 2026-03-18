@@ -25,8 +25,12 @@ set(HAL_SRC src/hal/hal_atmega328p.c)
 
 add_executable(${PROJECT_NAME}.elf
     src/main.c
-    src/display.c
-    src/card_reader.c
+    src/drivers/display.c
+    src/drivers/card_reader/card_reader_api.c
+    src/drivers/card_reader/card_reader_core.c
+    src/drivers/card_reader/card_reader_fat.c
+    src/drivers/card_reader/card_reader_spi.c
+    src/apps/animator.c
     ${HAL_SRC}
 )
 

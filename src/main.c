@@ -1,5 +1,6 @@
-#include "card_reader.h"
-#include "display.h"
+#include "drivers/card_reader/card_reader_api.h"
+#include "apps/animator.h"
+#include "drivers/display.h"
 #include "hal/hal.h"
 
 #if defined(ESP_PLATFORM)
@@ -90,23 +91,21 @@ static void build_raw_name(char *out, const char *base, const char *eyes, const 
 }
 
 
-static void draw_error_screen(const char *name, const card_reader_status_t *status) {
+static void draw_error_screen(const char *name) {
     display_fill_color(0x0000);
     display_draw_text(0, 0, "SD IMG FAIL", 0xFFFF, 0x0000);
     display_draw_text(0, 8, name, 0xFFFF, 0x0000);
-    display_draw_text(0, 16, status->sd_ok ? "SD OK" : "SD FAIL", 0xFFFF, 0x0000);
-    display_draw_text(0, 24, status->fat_ok ? "FAT OK" : "FAT NO", 0xFFFF, 0x0000);
-    display_draw_text(0, 32, card_reader_sd_fat_format_ok() ? "FATFMT OK" : "FATFMT NO", 0xFFFF, 0x0000);
-    display_draw_text(0, 40, card_reader_sd_fat_mount_ok() ? "FATMNT OK" : "FATMNT NO", 0xFFFF, 0x0000);
 }
 
-static uint8_t draw_frame(const char *base, const char *eyes, const char *mouth,
-                          const card_reader_status_t *status) {
+static uint8_t draw_frame(card_reader_state_t *dev,
+                          const char *base,
+                          const char *eyes,
+                          const char *mouth) {
     char name[11];
     build_raw_name(name, base, eyes, mouth);
-    uint8_t ok = card_reader_draw_raw565(name, TFT_WIDTH, TFT_HEIGHT);
+    uint8_t ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok) {
-        draw_error_screen(name, status);
+        draw_error_screen(name);
     }
     return ok;
 }
@@ -137,13 +136,14 @@ static void build_event_name(char *out, const char *base, event_type_t ev) {
 }
 
 
-static uint8_t draw_event_frame(const char *base, event_type_t ev,
-                                const card_reader_status_t *status) {
+static uint8_t draw_event_frame(card_reader_state_t *dev,
+                                const char *base,
+                                event_type_t ev) {
     char name[13];
     build_event_name(name, base, ev);
-    uint8_t ok = card_reader_draw_raw565(name, TFT_WIDTH, TFT_HEIGHT);
+    uint8_t ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok) {
-        draw_error_screen(name, status);
+        draw_error_screen(name);
     }
     return ok;
 }
@@ -232,19 +232,11 @@ static void app_run(void) {
     hal_init();
     display_init();
     display_fill_color(0x0000);
+    card_reader_state_t *dev = card_reader_file_open();
 
 #if TEST_SCREEN_DEBUG
-    card_reader_status_t status = {0};
     uint16_t refresh_timer = 0;
-    uint16_t init_timer = 0;
     while (1) {
-        if (init_timer <= TICK_MS) {
-            card_reader_init(&status);
-            init_timer = 2000u;
-        } else {
-            init_timer -= TICK_MS;
-        }
-
         if (refresh_timer <= TICK_MS) {
             refresh_timer = 1000u;
             display_fill_color(0x0000);
@@ -255,94 +247,7 @@ static void app_run(void) {
             display_draw_text(0, (uint16_t)(line++ * 8u), "DEBUG", 0xFFFF, 0x0000);
 
             char *p = buf;
-            p = append_str(p, "SD init:");
-            p = append_str(p, status.sd_ok ? "OK" : "FAIL");
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "SD type:");
-            p = append_str(p, card_reader_sd_is_sdhc() ? "SDHC" : "SDSC");
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "FAT:");
-            p = append_str(p, card_reader_fat_ready() ? "OK" : "NO");
-            p = append_str(p, " SPC:");
-            p = append_u8_dec(p, card_reader_fat_sectors_per_cluster());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "LBA:");
-            p = append_hex32(p, card_reader_fat_lba_start());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "FAT:");
-            p = append_hex32(p, card_reader_fat_first_fat());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "DATA:");
-            p = append_hex32(p, card_reader_fat_first_data());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "ROOT:");
-            p = append_hex32(p, card_reader_fat_root_cluster());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "CMD0:");
-            p = append_hex32(p, card_reader_sd_cmd0_r1());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "CMD8:");
-            p = append_hex32(p, card_reader_sd_cmd8_r1());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "R7:");
-            p = append_hex32(p, (uint32_t)card_reader_sd_cmd8_r7()[0] << 24 |
-                                (uint32_t)card_reader_sd_cmd8_r7()[1] << 16 |
-                                (uint32_t)card_reader_sd_cmd8_r7()[2] << 8  |
-                                (uint32_t)card_reader_sd_cmd8_r7()[3]);
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "ACMD41:");
-            p = append_hex32(p, card_reader_sd_acmd41_r1());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "CMD58:");
-            p = append_hex32(p, card_reader_sd_cmd58_r1());
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "OCR:");
-            p = append_hex32(p, (uint32_t)card_reader_sd_cmd58_ocr()[0] << 24 |
-                                (uint32_t)card_reader_sd_cmd58_ocr()[1] << 16 |
-                                (uint32_t)card_reader_sd_cmd58_ocr()[2] << 8  |
-                                (uint32_t)card_reader_sd_cmd58_ocr()[3]);
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-
-            p = buf;
-            p = append_str(p, "MISO:");
-            p = append_u8_dec(p, hal_miso_state());
+            p = append_str(p, dev ? "DEV:OK" : "DEV:NULL");
             *p = '\0';
             display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
         } else {
@@ -364,10 +269,6 @@ static void app_run(void) {
 #endif
 
 #if !TEST_SCREEN_DEBUG
-    card_reader_status_t status = {0};
-    card_reader_init(&status);
-    card_reader_print_status(&status);
-
     const char *bases[2] = {"HU", "HD"};
     uint8_t base_index = 0;
     uint16_t frame_timer = FRAME_INTERVAL_MS;
@@ -375,22 +276,22 @@ static void app_run(void) {
     blink_state_t blink = {0};
     const char *base = bases[base_index];
     const char *eyes = "EO";
-    draw_frame(base, eyes, "MC", &status);
+    draw_frame(dev, base, eyes, "MC");
     event_type_t event = EVENT_NONE;
     uint16_t event_timer = (uint16_t)(5000u + (uint16_t)(rng8() % 6u) * 1000u);
     uint16_t event_remaining = 0;
 
     while (1) {
-        if (status.sd_ok && status.fat_ok) {
+        if (dev) {
             if (frame_timer <= TICK_MS) {
                 frame_timer = FRAME_INTERVAL_MS;
                 base_index ^= 1u;
                 base = bases[base_index];
                 if (event != EVENT_NONE) {
-                    draw_event_frame(base, event, &status);
+                    draw_event_frame(dev, base, event);
                 } else {
                     eyes = blink.active ? blink_eyes_for_step(&blink) : "EO";
-                    draw_frame(base, eyes, "MC", &status);
+                    draw_frame(dev, base, eyes, "MC");
                 }
             } else {
                 frame_timer -= TICK_MS;
@@ -400,7 +301,7 @@ static void app_run(void) {
                 if (event_timer <= TICK_MS) {
                     event = (event_type_t)(1u + (rng8() % 3u));
                     event_remaining = 3000u;
-                    draw_event_frame(base, event, &status);
+                    draw_event_frame(dev, base, event);
                 } else {
                     event_timer -= TICK_MS;
                 }
@@ -410,7 +311,7 @@ static void app_run(void) {
                     event_timer = (uint16_t)(5000u + (uint16_t)(rng8() % 6u) * 1000u);
                     blink_timer = 4u * FRAME_INTERVAL_MS;
                     eyes = "EO";
-                    draw_frame(base, eyes, "MC", &status);
+                    draw_frame(dev, base, eyes, "MC");
                 } else {
                     event_remaining -= TICK_MS;
                 }
@@ -421,7 +322,7 @@ static void app_run(void) {
                     if (blink_timer <= TICK_MS) {
                         blink_start(&blink);
                         eyes = blink_eyes_for_step(&blink);
-                        draw_frame(base, eyes, "MC", &status);
+                        draw_frame(dev, base, eyes, "MC");
                         blink_timer = (4u + (rng8() % 8u)) * FRAME_INTERVAL_MS;
                     } else {
                         blink_timer -= TICK_MS;
@@ -429,20 +330,13 @@ static void app_run(void) {
                 } else {
                     if (blink_tick(&blink, TICK_MS)) {
                         eyes = "EO";
-                        draw_frame(base, eyes, "MC", &status);
+                        draw_frame(dev, base, eyes, "MC");
                     } else {
                         eyes = blink_eyes_for_step(&blink);
                     }
                 }
             }
         }
-
-        // CLI disabled for smoother animation. Re-enable if needed.
-        // char img1[11];
-        // char img2[11];
-        // build_raw_name(img1, "HU", "EO", "MC");
-        // build_raw_name(img2, "HD", "EO", "MC");
-        // card_reader_handle_cli(&status, img1, img2, TFT_WIDTH, TFT_HEIGHT);
 
         hal_delay_ms(TICK_MS);
     }

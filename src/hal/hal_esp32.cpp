@@ -104,10 +104,6 @@ void hal_uart_putc(char c) {
     Serial.write((uint8_t)c);
 }
 
-void hal_uart_puts(const char *s) {
-    Serial.print(s);
-}
-
 void hal_uart_put_hex8(uint8_t v) {
     const char hex[] = "0123456789ABCDEF";
     Serial.write(hex[(v >> 4) & 0xF]);
