@@ -1,7 +1,7 @@
 #include "system/app_mgr/app_mgr_api.h"
 
-#include "drivers/display/display_api.h"
 #include "hal/hal.h"
+#include "system/render/render_api.h"
 
 #if defined(ESP_PLATFORM)
 #include "freertos/FreeRTOS.h"
@@ -19,8 +19,7 @@ static void app_bootstrap(void)
 #endif
 
     hal_init();
-    display_init();
-    display_fill_color(0x0000);
+    render_init();
 
     app_mgr_init(&g_main_app_state, startup_app);
     (void)app_mgr_launch(&g_main_app_state);

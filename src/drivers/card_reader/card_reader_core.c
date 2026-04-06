@@ -34,6 +34,15 @@
 #define CARD_READER_CMD8_R7_BYTES 4
 #define CARD_READER_ACMD41_ATTEMPTS 8000
 #define CARD_READER_CMD1_ATTEMPTS 5000
+#define CARD_READER_WAIT_RETRY_DELAY_MS 500
+#define CARD_READER_WAIT_BOOT_DELAY_MS 50
+#define CARD_READER_HEX_DIGITS 8
+#define CARD_READER_BITS_PER_NIBBLE 4
+#define CARD_READER_DECIMAL_BASE 10u
+#define CARD_READER_DECIMAL_HUNDREDS 100u
+#define CARD_READER_CMD8_VOLTAGE_INDEX 2
+#define CARD_READER_CMD8_PATTERN_INDEX 3
+#define CARD_READER_OCR_STATUS_INDEX 0
 
 typedef enum {
     SD_R1_STATE_IDLE = 0x01,
@@ -77,6 +86,125 @@ static void card_reader_state_reset(card_reader_state_t *state)
     state->regs.sd_last_cmd8_r1 = CARD_READER_SD_R1_NO_RESPONSE;
     state->regs.sd_last_acmd41_r1 = CARD_READER_SD_R1_NO_RESPONSE;
     state->regs.sd_last_cmd58_r1 = CARD_READER_SD_R1_NO_RESPONSE;
+}
+
+/************************************************
+* card_reader_append_str
+* Appends a source string to the destination cursor.
+* Parameters: dst = destination cursor, src = source string.
+* Returns: updated destination cursor after the copied text.
+***************************************************/
+static char *card_reader_append_str(char *dst, const char *src)
+{
+    while (*src)
+    {
+        *dst++ = *src++;
+    }
+    return dst;
+}
+
+/************************************************
+* card_reader_append_hex32
+* Appends a 32-bit value as hexadecimal text with a 0x prefix.
+* Parameters: dst = destination cursor, value = value to format.
+* Returns: updated destination cursor after the formatted value.
+***************************************************/
+static char *card_reader_append_hex32(char *dst, uint32_t value)
+{
+    static const char hex[] = "0123456789ABCDEF";
+
+    *dst++ = '0';
+    *dst++ = 'x';
+    for (int8_t i = (CARD_READER_HEX_DIGITS - 1); i >= 0; i--)
+    {
+        uint8_t nib = (uint8_t)((value >> (uint8_t)(i * CARD_READER_BITS_PER_NIBBLE)) & 0x0Fu);
+        *dst++ = hex[nib];
+    }
+    return dst;
+}
+
+/************************************************
+* card_reader_append_u8_dec
+* Appends an 8-bit value as decimal ASCII text.
+* Parameters: dst = destination cursor, value = value to format.
+* Returns: updated destination cursor after the formatted value.
+***************************************************/
+static char *card_reader_append_u8_dec(char *dst, uint8_t value)
+{
+    if (value >= CARD_READER_DECIMAL_HUNDREDS)
+    {
+        *dst++ = (char)('0' + (value / CARD_READER_DECIMAL_HUNDREDS));
+        value = (uint8_t)(value % CARD_READER_DECIMAL_HUNDREDS);
+        *dst++ = (char)('0' + (value / CARD_READER_DECIMAL_BASE));
+        *dst++ = (char)('0' + (value % CARD_READER_DECIMAL_BASE));
+        return dst;
+    }
+    if (value >= CARD_READER_DECIMAL_BASE)
+    {
+        *dst++ = (char)('0' + (value / CARD_READER_DECIMAL_BASE));
+        *dst++ = (char)('0' + (value % CARD_READER_DECIMAL_BASE));
+        return dst;
+    }
+    *dst++ = (char)('0' + value);
+    return dst;
+}
+
+/************************************************
+* card_reader_format_wait_status
+* Builds human-readable status lines for the SD wait-and-retry screen.
+* Parameters: dev = current card reader instance, attempt = retry count,
+*             line0-line3 = output buffers.
+* Returns: void.
+***************************************************/
+static void card_reader_format_wait_status(const card_reader_state_t *dev,
+                                           uint8_t attempt,
+                                           char *line0,
+                                           char *line1,
+                                           char *line2,
+                                           char *line3)
+{
+    char *p = 0;
+
+    /* Start with the generic wait heading and a retry counter line. */
+    if (line0)
+    {
+        strcpy(line0, "WAIT SD");
+    }
+    if (line1)
+    {
+        p = line1;
+        p = card_reader_append_str(p, "TRY:");
+        p = card_reader_append_u8_dec(p, attempt);
+        *p = '\0';
+    }
+    if (line2)
+    {
+        line2[0] = '\0';
+    }
+    if (line3)
+    {
+        line3[0] = '\0';
+    }
+    /* Without a device instance there are no SD register values to report yet. */
+    if (!dev)
+    {
+        return;
+    }
+    /* When a failed probe produced state, include the last command responses for debugging. */
+    if (line2)
+    {
+        p = line2;
+        p = card_reader_append_str(p, "C0:");
+        p = card_reader_append_hex32(p, dev->regs.sd_last_cmd0_r1);
+        *p = '\0';
+    }
+    if (line3)
+    {
+        p = line3;
+        p = card_reader_append_str(p, "C8:");
+        p = card_reader_append_hex32(p, dev->regs.sd_last_cmd8_r1);
+        *p = '\0';
+    }
 }
 
 /************************************************
@@ -131,8 +259,8 @@ static uint8_t sd_init(card_reader_state_t *state)
     }
     /* CMD8 only valid if card stayed IDLE and echoed expected values. */
     if (r1 == SD_R1_STATE_IDLE &&
-        cmd8_response[2] == SD_CMD8_VOLTAGE_27_36 &&
-        cmd8_response[3] == SD_CMD8_CHECK_PATTERN)
+        cmd8_response[CARD_READER_CMD8_VOLTAGE_INDEX] == SD_CMD8_VOLTAGE_27_36 &&
+        cmd8_response[CARD_READER_CMD8_PATTERN_INDEX] == SD_CMD8_CHECK_PATTERN)
     {
         /* ACMD41 with HCS for SD v2: wait until the card exits idle. */
         uint16_t no_resp = 0;
@@ -192,10 +320,10 @@ static uint8_t sd_init(card_reader_state_t *state)
             state->regs.sd_last_cmd58_ocr[i] = ocr[i];
         }
         /* OCR is only valid if the card is READY and power-up is complete. */
-        if (r1 == SD_R1_STATE_READY && (ocr[0] & SD_OCR_POWER_UP_STATUS))
+        if (r1 == SD_R1_STATE_READY && (ocr[CARD_READER_OCR_STATUS_INDEX] & SD_OCR_POWER_UP_STATUS))
         {
             /* CCS bit indicates block-addressing (SDHC/SDXC). */
-            if (ocr[0] & SD_OCR_CCS)
+            if (ocr[CARD_READER_OCR_STATUS_INDEX] & SD_OCR_CCS)
             {
                 state->status.sd_is_sdhc = 1;
             }
@@ -286,6 +414,59 @@ card_reader_state_t *card_reader_core_open(void)
 }
 
 /************************************************
+* card_reader_core_wait_ready
+* Repeatedly initializes the SD card until FAT is ready.
+* Parameters: status_fn = optional retry-status callback, ctx = callback context.
+* Returns: ready card reader instance on success.
+***************************************************/
+card_reader_state_t *card_reader_core_wait_ready(card_reader_wait_status_fn_t status_fn, void *ctx)
+{
+    card_reader_state_t *state = 0;
+    uint8_t attempt = 0;
+
+    /* Keep retrying until SD init and FAT mount both report ready. */
+    while (!state || !state->status.sd_fat32_ready)
+    {
+        /* Drop any previous failed instance before starting another probe cycle. */
+        if (state)
+        {
+            card_reader_core_close(state);
+            state = 0;
+        }
+
+        hal_spi_sd_init();
+        hal_spi_sd_set_speed_very_slow();
+        hal_sd_cs_high();
+        hal_delay_ms(CARD_READER_WAIT_BOOT_DELAY_MS);
+
+        /* Run a fresh open attempt after the hardware has been re-primed. */
+        state = card_reader_core_open();
+        if (state && state->status.sd_fat32_ready)
+        {
+            break;
+        }
+
+        /* Report retry progress to the caller when a wait-status callback is provided. */
+        if (status_fn)
+        {
+            char line0[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+            char line1[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+            char line2[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+            char line3[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+
+            card_reader_format_wait_status(state, attempt, line0, line1, line2, line3);
+            status_fn(line0, line1, line2, line3, ctx);
+        }
+
+        /* Back off briefly before the next initialization attempt. */
+        attempt++;
+        hal_delay_ms(CARD_READER_WAIT_RETRY_DELAY_MS);
+    }
+
+    return state;
+}
+
+/************************************************
 * card_reader_core_read
 * Reads a file from the SD card and streams it to a sink callback.
 * Parameters: dev = card reader instance, name = filename,
@@ -350,4 +531,73 @@ void card_reader_core_close(card_reader_state_t *dev)
     card_reader_spi_deselect();
     card_reader_state_reset(dev);
     free(dev);
+}
+
+/************************************************
+* card_reader_core_describe_status
+* Formats SD status lines for display or logging.
+* Parameters: dev = card reader instance, line0-line3 = output buffers.
+* Returns: void.
+***************************************************/
+void card_reader_core_describe_status(const card_reader_state_t *dev,
+char *line0,
+char *line1,
+char *line2,
+char *line3)
+{
+    char *p = 0;
+
+    /* Clear the caller buffers up front so omitted fields do not contain stale text. */
+    if (line0)
+    {
+        strcpy(line0, "SD STATUS");
+    }
+    if (line1)
+    {
+        line1[0] = '\0';
+    }
+    if (line2)
+    {
+        line2[0] = '\0';
+    }
+    if (line3)
+    {
+        line3[0] = '\0';
+    }
+
+    /* If there is no device, report a simple failure banner and stop there. */
+    if (!dev)
+    {
+        if (line1)
+        {
+            strcpy(line1, "SD:FAIL");
+        }
+        return;
+    }
+
+    /* Format the high-level SD/FAT readiness summary first. */
+    if (line1)
+    {
+        p = line1;
+        p = card_reader_append_str(p, "SDHC:");
+        p = card_reader_append_u8_dec(p, dev->status.sd_is_sdhc);
+        p = card_reader_append_str(p, " FAT:");
+        p = card_reader_append_u8_dec(p, dev->status.sd_fat32_ready);
+        *p = '\0';
+    }
+    /* Include the last low-level command responses for debugging visibility. */
+    if (line2)
+    {
+        p = line2;
+        p = card_reader_append_str(p, "C0:");
+        p = card_reader_append_hex32(p, dev->regs.sd_last_cmd0_r1);
+        *p = '\0';
+    }
+    if (line3)
+    {
+        p = line3;
+        p = card_reader_append_str(p, "C8:");
+        p = card_reader_append_hex32(p, dev->regs.sd_last_cmd8_r1);
+        *p = '\0';
+    }
 }

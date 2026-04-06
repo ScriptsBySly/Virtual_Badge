@@ -1,17 +1,8 @@
 #include "apps/animator/animator.h"
 
 #include "drivers/card_reader/card_reader_api.h"
-#include "drivers/display/display_api.h"
 #include "hal/hal.h"
-
-#include <string.h>
-
-#if defined(ESP_PLATFORM)
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/task.h"
-#include "esp_heap_caps.h"
-#endif
+#include "system/render/render_api.h"
 
 #ifndef TFT_WIDTH
 #define TFT_WIDTH 128u
@@ -25,21 +16,7 @@ enum {
     FRAME_INTERVAL_MS = 500u,
     BLINK_STEP_MS = 120u,
     TICK_MS = 20u,
-    RAW565_CACHE_ENTRIES = 4,
 };
-
-typedef struct {
-    char name[13];
-    uint8_t *data;
-    uint32_t size;
-    uint8_t valid;
-} raw565_cache_entry_t;
-
-typedef struct {
-    uint8_t *dst;
-    uint32_t offset;
-    uint32_t capacity;
-} raw565_copy_ctx_t;
 
 typedef enum {
     EVENT_NONE = 0,
@@ -55,82 +32,12 @@ typedef struct {
     uint8_t mode;
 } blink_state_t;
 
-#if defined(ESP_PLATFORM)
-typedef struct {
-    char name[13];
-    uint16_t width;
-    uint16_t height;
-} frame_request_t;
-
-typedef struct {
-    uint8_t *data;
-    uint32_t size;
-} frame_buffer_t;
-
-typedef struct {
-    card_reader_state_t *dev;
-    QueueHandle_t request_q;
-    QueueHandle_t ready_q;
-    QueueHandle_t free_q;
-    uint16_t width;
-    uint16_t height;
-} frame_tasks_ctx_t;
-
-static QueueHandle_t g_frame_req_q = NULL;
-static QueueHandle_t g_frame_ready_q = NULL;
-static QueueHandle_t g_frame_free_q = NULL;
-#endif
-
-static raw565_cache_entry_t g_raw565_cache[RAW565_CACHE_ENTRIES];
-static uint8_t g_raw565_cache_next = 0;
 static uint16_t g_animator_rng_state = 0xACE1u;
 
 static uint8_t animator_rng8(void)
 {
     g_animator_rng_state = (uint16_t)((g_animator_rng_state >> 1) ^ (-(g_animator_rng_state & 1u) & 0xB400u));
     return (uint8_t)(g_animator_rng_state & 0xFFu);
-}
-
-static char *animator_append_str(char *p, const char *s)
-{
-    while (*s)
-    {
-        *p++ = *s++;
-    }
-    return p;
-}
-
-static char *animator_append_hex32(char *p, uint32_t v)
-{
-    static const char hex[] = "0123456789ABCDEF";
-    *p++ = '0';
-    *p++ = 'x';
-    for (int8_t i = 7; i >= 0; i--)
-    {
-        uint8_t nib = (uint8_t)((v >> (uint8_t)(i * 4)) & 0xFu);
-        *p++ = hex[nib];
-    }
-    return p;
-}
-
-static char *animator_append_u8_dec(char *p, uint8_t v)
-{
-    if (v >= 100)
-    {
-        *p++ = (char)('0' + (v / 100));
-        v = (uint8_t)(v % 100);
-        *p++ = (char)('0' + (v / 10));
-        *p++ = (char)('0' + (v % 10));
-        return p;
-    }
-    if (v >= 10)
-    {
-        *p++ = (char)('0' + (v / 10));
-        *p++ = (char)('0' + (v % 10));
-        return p;
-    }
-    *p++ = (char)('0' + v);
-    return p;
 }
 
 static void animator_build_raw_name(char *out, const char *base, const char *eyes, const char *mouth)
@@ -171,254 +78,19 @@ static void animator_build_event_name(char *out, const char *base, event_type_t 
 
 static void animator_draw_error_screen(const char *name)
 {
-    display_fill_color(0x0000);
-    display_draw_text(0, 0, "SD IMG FAIL", 0xFFFF, 0x0000);
-    display_draw_text(0, 8, name, 0xFFFF, 0x0000);
+    (void)render_show_text_screen("SD IMG FAIL", name, 0, 0);
 }
 
 static void animator_draw_sd_status_overlay(const card_reader_state_t *dev)
 {
-    char buf[32];
-    char *p = buf;
+    char line0[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+    char line1[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+    char line2[CARD_READER_STATUS_LINE_CAPACITY] = {0};
+    char line3[CARD_READER_STATUS_LINE_CAPACITY] = {0};
 
-    display_fill_color(0x0000);
-    display_draw_text(0, 0, "SD STATUS", 0xFFFF, 0x0000);
-    if (!dev)
-    {
-        display_draw_text(0, 8, "SD:FAIL", 0xFFFF, 0x0000);
-        return;
-    }
-
-    p = animator_append_str(p, "SDHC:");
-    p = animator_append_u8_dec(p, dev->status.sd_is_sdhc);
-    p = animator_append_str(p, " FAT:");
-    p = animator_append_u8_dec(p, dev->status.sd_fat32_ready);
-    *p = '\0';
-    display_draw_text(0, 8, buf, 0xFFFF, 0x0000);
-
-    p = buf;
-    p = animator_append_str(p, "C0:");
-    p = animator_append_hex32(p, dev->regs.sd_last_cmd0_r1);
-    *p = '\0';
-    display_draw_text(0, 16, buf, 0xFFFF, 0x0000);
-
-    p = buf;
-    p = animator_append_str(p, "C8:");
-    p = animator_append_hex32(p, dev->regs.sd_last_cmd8_r1);
-    *p = '\0';
-    display_draw_text(0, 24, buf, 0xFFFF, 0x0000);
+    card_reader_describe_status(dev, line0, line1, line2, line3);
+    (void)render_show_text_screen(line0, line1, line2, line3);
 }
-
-static void animator_stream_bytes_sd(const uint8_t *data, uint16_t len, void *ctx)
-{
-    (void)ctx;
-    display_stream_bytes(data, len);
-}
-
-static void animator_stream_bytes_cache(const uint8_t *data, uint16_t len, void *ctx)
-{
-    raw565_copy_ctx_t *copy = (raw565_copy_ctx_t *)ctx;
-    uint32_t remaining = 0;
-    uint16_t chunk = len;
-
-    if (!copy || !copy->dst || copy->offset >= copy->capacity)
-    {
-        return;
-    }
-
-    remaining = copy->capacity - copy->offset;
-    if ((uint32_t)chunk > remaining)
-    {
-        chunk = (uint16_t)remaining;
-    }
-
-    memcpy(copy->dst + copy->offset, data, chunk);
-    copy->offset += chunk;
-}
-
-static raw565_cache_entry_t *animator_cache_find(const char *name, uint32_t expected)
-{
-    if (!name)
-    {
-        return 0;
-    }
-
-    for (uint8_t i = 0; i < RAW565_CACHE_ENTRIES; i++)
-    {
-        raw565_cache_entry_t *entry = &g_raw565_cache[i];
-        if (!entry->valid || entry->size != expected)
-        {
-            continue;
-        }
-        if (strncmp(entry->name, name, sizeof(entry->name)) == 0)
-        {
-            return entry;
-        }
-    }
-    return 0;
-}
-
-static raw565_cache_entry_t *animator_cache_store(const char *name, uint32_t size)
-{
-    raw565_cache_entry_t *entry = &g_raw565_cache[g_raw565_cache_next];
-    g_raw565_cache_next = (uint8_t)((g_raw565_cache_next + 1u) % RAW565_CACHE_ENTRIES);
-    entry->valid = 0;
-    entry->size = size;
-
-    if (!name)
-    {
-        entry->name[0] = '\0';
-        return entry;
-    }
-
-    for (uint8_t i = 0; i < sizeof(entry->name) - 1; i++)
-    {
-        entry->name[i] = name[i];
-        if (!name[i])
-        {
-            entry->valid = 1;
-            return entry;
-        }
-    }
-
-    entry->name[sizeof(entry->name) - 1] = '\0';
-    entry->valid = 1;
-    return entry;
-}
-
-static uint8_t animator_draw_raw565(card_reader_state_t *dev,
-                                    const char *name,
-                                    uint16_t width,
-                                    uint16_t height)
-{
-    uint32_t expected = (uint32_t)width * (uint32_t)height * 2u;
-    raw565_cache_entry_t *hit = animator_cache_find(name, expected);
-
-    display_set_addr_window(width, height);
-    if (hit)
-    {
-        if (expected <= 0xFFFFu)
-        {
-            display_stream_bytes(hit->data, (uint16_t)expected);
-        }
-        else
-        {
-            uint32_t offset = 0;
-            while (offset < expected)
-            {
-                uint16_t chunk = (expected - offset) > 0xFFFFu ? 0xFFFFu : (uint16_t)(expected - offset);
-                display_stream_bytes(hit->data + offset, chunk);
-                offset += chunk;
-            }
-        }
-        return 1;
-    }
-
-    return card_reader_file_read(dev, name, expected, animator_stream_bytes_sd, NULL);
-}
-
-static uint8_t animator_load_raw565(card_reader_state_t *dev,
-                                    const char *name,
-                                    uint16_t width,
-                                    uint16_t height,
-                                    uint8_t *dst,
-                                    uint32_t capacity)
-{
-    uint32_t expected = (uint32_t)width * (uint32_t)height * 2u;
-    raw565_cache_entry_t *hit = animator_cache_find(name, expected);
-    raw565_copy_ctx_t sink = {
-        .dst = dst,
-        .offset = 0,
-        .capacity = capacity,
-    };
-
-    if (hit)
-    {
-        if (dst && capacity >= expected)
-        {
-            memcpy(dst, hit->data, expected);
-            return 1;
-        }
-        return 0;
-    }
-
-    if (dst && capacity >= expected)
-    {
-        uint8_t ok = card_reader_file_read(dev, name, expected, animator_stream_bytes_cache, &sink);
-        if (ok)
-        {
-            raw565_cache_entry_t *entry = animator_cache_store(name, expected);
-            entry->data = dst;
-            entry->size = expected;
-            entry->valid = 1;
-        }
-        return ok;
-    }
-
-    return 0;
-}
-
-#if defined(ESP_PLATFORM)
-static void animator_frame_loader_task(void *arg)
-{
-    frame_tasks_ctx_t *ctx = (frame_tasks_ctx_t *)arg;
-
-    for (;;)
-    {
-        frame_request_t req;
-        frame_buffer_t *buf = NULL;
-        if (xQueueReceive(ctx->request_q, &req, portMAX_DELAY) != pdTRUE)
-        {
-            continue;
-        }
-        if (xQueueReceive(ctx->free_q, &buf, portMAX_DELAY) != pdTRUE || !buf || !buf->data)
-        {
-            continue;
-        }
-        if (!animator_load_raw565(ctx->dev, req.name, req.width, req.height, buf->data, buf->size))
-        {
-            /* Keep the prior frame to avoid flashing black when SD reads fail. */
-        }
-        xQueueSend(ctx->ready_q, &buf, portMAX_DELAY);
-    }
-}
-
-static void animator_frame_display_task(void *arg)
-{
-    frame_tasks_ctx_t *ctx = (frame_tasks_ctx_t *)arg;
-    const uint32_t expected = (uint32_t)ctx->width * (uint32_t)ctx->height * 2u;
-
-    for (;;)
-    {
-        frame_buffer_t *buf = NULL;
-        if (xQueueReceive(ctx->ready_q, &buf, portMAX_DELAY) != pdTRUE || !buf || !buf->data)
-        {
-            continue;
-        }
-        display_set_addr_window(ctx->width, ctx->height);
-        display_stream_bytes(buf->data, (uint16_t)expected);
-        xQueueSend(ctx->free_q, &buf, portMAX_DELAY);
-    }
-}
-
-static uint8_t animator_enqueue_frame(const char *name, uint16_t width, uint16_t height)
-{
-    frame_request_t req = {0};
-
-    if (!g_frame_req_q || !name)
-    {
-        return 0;
-    }
-
-    for (uint8_t i = 0; i < sizeof(req.name) - 1 && name[i]; i++)
-    {
-        req.name[i] = name[i];
-    }
-    req.width = width;
-    req.height = height;
-    return xQueueSend(g_frame_req_q, &req, 0) == pdTRUE;
-}
-#endif
 
 static uint8_t animator_draw_frame(card_reader_state_t *dev,
                                    const char *base,
@@ -429,13 +101,8 @@ static uint8_t animator_draw_frame(card_reader_state_t *dev,
     uint8_t ok = 0;
 
     animator_build_raw_name(name, base, eyes, mouth);
-#if defined(ESP_PLATFORM)
-    if (g_frame_req_q)
-    {
-        return animator_enqueue_frame(name, TFT_WIDTH, TFT_HEIGHT);
-    }
-#endif
-    ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
+    (void)dev;
+    ok = render_queue_raw565(name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok)
     {
         animator_draw_error_screen(name);
@@ -451,13 +118,8 @@ static uint8_t animator_draw_event_frame(card_reader_state_t *dev,
     uint8_t ok = 0;
 
     animator_build_event_name(name, base, ev);
-#if defined(ESP_PLATFORM)
-    if (g_frame_req_q)
-    {
-        return animator_enqueue_frame(name, TFT_WIDTH, TFT_HEIGHT);
-    }
-#endif
-    ok = animator_draw_raw565(dev, name, TFT_WIDTH, TFT_HEIGHT);
+    (void)dev;
+    ok = render_queue_raw565(name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok)
     {
         animator_draw_error_screen(name);
@@ -531,108 +193,24 @@ static uint8_t animator_blink_tick(blink_state_t *b, uint16_t tick_ms)
     return 0;
 }
 
-static card_reader_state_t *animator_wait_for_sd_ready(void)
+static void animator_show_wait_sd_status(const char *line0,
+                                         const char *line1,
+                                         const char *line2,
+                                         const char *line3,
+                                         void *ctx)
 {
-    card_reader_state_t *dev = NULL;
-    uint8_t sd_attempt = 0;
-
-    while (!dev || !dev->status.sd_fat32_ready)
-    {
-        if (dev)
-        {
-            card_reader_file_close(dev);
-            dev = NULL;
-        }
-        hal_spi_sd_init();
-        hal_spi_sd_set_speed_very_slow();
-        hal_sd_cs_high();
-        hal_delay_ms(50);
-
-        dev = card_reader_file_open();
-        if (dev && dev->status.sd_fat32_ready)
-        {
-            break;
-        }
-
-        display_fill_color(0x0000);
-        display_draw_text(0, 0, "WAIT SD", 0xFFFF, 0x0000);
-        {
-            char buf[32];
-            char *p = buf;
-            p = animator_append_str(p, "TRY:");
-            p = animator_append_u8_dec(p, sd_attempt);
-            *p = '\0';
-            display_draw_text(0, 8, buf, 0xFFFF, 0x0000);
-            if (dev)
-            {
-                p = buf;
-                p = animator_append_str(p, "C0:");
-                p = animator_append_hex32(p, dev->regs.sd_last_cmd0_r1);
-                *p = '\0';
-                display_draw_text(0, 16, buf, 0xFFFF, 0x0000);
-
-                p = buf;
-                p = animator_append_str(p, "C8:");
-                p = animator_append_hex32(p, dev->regs.sd_last_cmd8_r1);
-                *p = '\0';
-                display_draw_text(0, 24, buf, 0xFFFF, 0x0000);
-            }
-        }
-        sd_attempt++;
-        hal_delay_ms(500);
-    }
-
-    return dev;
+    (void)ctx;
+    (void)render_show_text_screen(line0, line1, line2, line3);
 }
 
 uint8_t animator_app_task(void *ctx)
 {
     (void)ctx;
 
-    card_reader_state_t *dev = animator_wait_for_sd_ready();
+    card_reader_state_t *dev = card_reader_wait_ready(animator_show_wait_sd_status, 0);
+    render_bind_reader(dev);
     animator_draw_sd_status_overlay(dev);
     hal_delay_ms(2000);
-
-#if defined(ESP_PLATFORM)
-#if 0
-    const uint32_t frame_bytes = (uint32_t)TFT_WIDTH * (uint32_t)TFT_HEIGHT * 2u;
-    frame_buffer_t buffers[2] = {0};
-    for (uint8_t i = 0; i < 2; i++)
-    {
-        buffers[i].size = frame_bytes;
-        buffers[i].data = (uint8_t *)heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!buffers[i].data)
-        {
-            buffers[i].data = (uint8_t *)malloc(frame_bytes);
-        }
-    }
-
-    g_frame_req_q = xQueueCreate(4, sizeof(frame_request_t));
-    g_frame_ready_q = xQueueCreate(2, sizeof(frame_buffer_t *));
-    g_frame_free_q = xQueueCreate(2, sizeof(frame_buffer_t *));
-
-    if (g_frame_req_q && g_frame_ready_q && g_frame_free_q)
-    {
-        for (uint8_t i = 0; i < 2; i++)
-        {
-            if (buffers[i].data)
-            {
-                frame_buffer_t *buf = &buffers[i];
-                xQueueSend(g_frame_free_q, &buf, 0);
-            }
-        }
-        static frame_tasks_ctx_t frame_ctx;
-        frame_ctx.dev = dev;
-        frame_ctx.request_q = g_frame_req_q;
-        frame_ctx.ready_q = g_frame_ready_q;
-        frame_ctx.free_q = g_frame_free_q;
-        frame_ctx.width = TFT_WIDTH;
-        frame_ctx.height = TFT_HEIGHT;
-        xTaskCreate(animator_frame_loader_task, "frame_loader", 4096, &frame_ctx, 5, NULL);
-        xTaskCreate(animator_frame_display_task, "frame_display", 4096, &frame_ctx, 5, NULL);
-    }
-#endif
-#endif
     {
         const char *bases[2] = {"HU", "HD"};
         uint8_t base_index = 0;

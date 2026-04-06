@@ -2,6 +2,14 @@
 
 #include <stdint.h>
 
+#define CARD_READER_STATUS_LINE_CAPACITY 32u
+
+typedef void (*card_reader_wait_status_fn_t)(const char *line0,
+                                             const char *line1,
+                                             const char *line2,
+                                             const char *line3,
+                                             void *ctx);
+
 typedef struct card_reader_state {
     struct {
         uint8_t sd_is_sdhc;
