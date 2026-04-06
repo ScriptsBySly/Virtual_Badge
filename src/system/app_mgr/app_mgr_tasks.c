@@ -20,6 +20,8 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .stack_words = APP_MGR_TASK_STACK_WORDS,
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
+        .role = APP_MGR_TASK_ROLE_SERVICE,
+        .auto_start = 1,
     },
 #ifdef DEBUG_APP_ENABLED
     {
@@ -29,6 +31,8 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .stack_words = APP_MGR_TASK_STACK_WORDS,
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
+        .role = APP_MGR_TASK_ROLE_APP,
+        .auto_start = 0,
     },
 #else
     {
@@ -38,6 +42,8 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .stack_words = APP_MGR_TASK_STACK_WORDS,
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
+        .role = APP_MGR_TASK_ROLE_APP,
+        .auto_start = 0,
     },
 #endif
 };
@@ -50,7 +56,7 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
 ***************************************************/
 const app_mgr_task_desc_t *app_mgr_tasks_find(app_mgr_app_id_t app_id)
 {
-    for (uint8_t i = 0; i < (sizeof(k_app_mgr_tasks) / sizeof(k_app_mgr_tasks[0])); i++)
+    for (uint8_t i = 0; i < app_mgr_tasks_count(); i++)
     {
         if (k_app_mgr_tasks[i].app_id == app_id)
         {
@@ -59,10 +65,35 @@ const app_mgr_task_desc_t *app_mgr_tasks_find(app_mgr_app_id_t app_id)
     }
     return 0;
 }
+
+const app_mgr_task_desc_t *app_mgr_tasks_get(uint8_t index)
+{
+    if (index >= app_mgr_tasks_count())
+    {
+        return 0;
+    }
+    return &k_app_mgr_tasks[index];
+}
+
+uint8_t app_mgr_tasks_count(void)
+{
+    return (uint8_t)(sizeof(k_app_mgr_tasks) / sizeof(k_app_mgr_tasks[0]));
+}
 #else
 const app_mgr_task_desc_t *app_mgr_tasks_find(app_mgr_app_id_t app_id)
 {
     (void)app_id;
+    return 0;
+}
+
+const app_mgr_task_desc_t *app_mgr_tasks_get(uint8_t index)
+{
+    (void)index;
+    return 0;
+}
+
+uint8_t app_mgr_tasks_count(void)
+{
     return 0;
 }
 #endif
