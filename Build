@@ -8,15 +8,17 @@ OUTPUT_DIR=${OUTPUT_DIR:-output}
 
 TARGET="nano"
 CLEAN=0
+DEBUG_APP=0
 
 usage() {
-  echo "Usage: $0 [-t nano|esp32|esp32s3] [-c]"
+  echo "Usage: $0 [-t nano|esp32|esp32s3] [-c] [-d]"
 }
 
-while getopts ":t:ch" opt; do
+while getopts ":t:cdh" opt; do
   case "${opt}" in
     t) TARGET="${OPTARG}" ;;
     c) CLEAN=1 ;;
+    d) DEBUG_APP=1 ;;
     h) usage; exit 0 ;;
     *) usage; exit 1 ;;
   esac
@@ -46,7 +48,7 @@ case "${TARGET}" in
       echo "IDF_PATH not set. Run: . /path/to/esp-idf/export.sh"
       exit 1
     fi
-    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 build
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 -DDEBUG_APP="${DEBUG_APP}" build
     mkdir -p "${OUTPUT_DIR}"
     for f in \
       "${BUILD_DIR}/virtual_badge_esp32.bin" \
@@ -64,8 +66,8 @@ case "${TARGET}" in
       echo "IDF_PATH not set. Run: . /path/to/esp-idf/export.sh"
       exit 1
     fi
-    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 set-target esp32s3
-    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 build
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 -DDEBUG_APP="${DEBUG_APP}" set-target esp32s3
+    idf.py -B "${BUILD_DIR}" -DHAL_MCU=esp32 -DDEBUG_APP="${DEBUG_APP}" build
     mkdir -p "${OUTPUT_DIR}"
     for f in \
       "${BUILD_DIR}/virtual_badge_esp32.bin" \

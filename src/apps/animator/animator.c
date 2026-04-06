@@ -7,7 +7,6 @@
 #include <string.h>
 
 #if defined(ESP_PLATFORM)
-#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -28,22 +27,6 @@ enum {
     TICK_MS = 20u,
     RAW565_CACHE_ENTRIES = 4,
 };
-
-#ifndef TEST_LED_BLINK
-#define TEST_LED_BLINK 0
-#endif
-
-#ifndef BLINK_GPIO
-#define BLINK_GPIO 2
-#endif
-
-#ifndef TEST_RGB_CYCLE
-#define TEST_RGB_CYCLE 0
-#endif
-
-#ifndef TEST_SCREEN_DEBUG
-#define TEST_SCREEN_DEBUG 0
-#endif
 
 typedef struct {
     char name[13];
@@ -606,40 +589,11 @@ uint8_t animator_app_task(void *ctx)
 {
     (void)ctx;
 
-#if TEST_LED_BLINK
-#if defined(ESP_PLATFORM)
-    gpio_config_t io_cfg = {
-        .pin_bit_mask = (1ULL << BLINK_GPIO),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_cfg);
-    while (1)
-    {
-        gpio_set_level(BLINK_GPIO, 1);
-        hal_delay_ms(250);
-        gpio_set_level(BLINK_GPIO, 0);
-        hal_delay_ms(250);
-    }
-#else
-    while (1)
-    {
-        hal_delay_ms(250);
-    }
-#endif
-#endif
-
-    hal_init();
-    display_init();
-    display_fill_color(0x0000);
-
     card_reader_state_t *dev = animator_wait_for_sd_ready();
     animator_draw_sd_status_overlay(dev);
     hal_delay_ms(2000);
 
-#if defined(ESP_PLATFORM) && !TEST_SCREEN_DEBUG && !TEST_RGB_CYCLE && !TEST_LED_BLINK
+#if defined(ESP_PLATFORM)
 #if 0
     const uint32_t frame_bytes = (uint32_t)TFT_WIDTH * (uint32_t)TFT_HEIGHT * 2u;
     frame_buffer_t buffers[2] = {0};
@@ -679,21 +633,6 @@ uint8_t animator_app_task(void *ctx)
     }
 #endif
 #endif
-
-#if TEST_RGB_CYCLE
-    {
-        const uint16_t colors[] = {0xF800u, 0x07E0u, 0x001Fu, 0xFFFFu, 0x0000u};
-        uint8_t color_index = 0;
-        while (1)
-        {
-            display_fill_color(colors[color_index]);
-            color_index = (uint8_t)((color_index + 1u) % (sizeof(colors) / sizeof(colors[0])));
-            hal_delay_ms(500);
-        }
-    }
-#endif
-
-#if !TEST_SCREEN_DEBUG
     {
         const char *bases[2] = {"HU", "HD"};
         uint8_t base_index = 0;
@@ -791,7 +730,6 @@ uint8_t animator_app_task(void *ctx)
             hal_delay_ms(TICK_MS);
         }
     }
-#endif
 
     return 1;
 }

@@ -1,6 +1,9 @@
 #include "system/app_mgr/app_mgr_tasks.h"
 
 #include "apps/animator/animator.h"
+#ifdef DEBUG_APP_ENABLED
+#include "apps/debug/debug.h"
+#endif
 
 #if defined(ESP_PLATFORM)
 enum {
@@ -9,6 +12,16 @@ enum {
 };
 
 static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
+#ifdef DEBUG_APP_ENABLED
+    {
+        .app_id = APP_MGR_APP_DEBUG,
+        .task_name = "debug",
+        .entry_fn = debug_app_task,
+        .stack_words = APP_MGR_TASK_STACK_WORDS,
+        .priority = APP_MGR_TASK_PRIORITY,
+        .task_ctx = 0,
+    },
+#else
     {
         .app_id = APP_MGR_APP_MAIN,
         .task_name = "main_app",
@@ -17,6 +30,7 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
     },
+#endif
 };
 
 /************************************************

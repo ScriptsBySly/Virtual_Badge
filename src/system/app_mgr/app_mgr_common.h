@@ -10,8 +10,7 @@
 typedef enum {
     APP_MGR_APP_NONE = 0,
     APP_MGR_APP_MAIN,
-    APP_MGR_APP_RENDER_DUMMY,
-    APP_MGR_APP_BADGE_DUMMY,
+    APP_MGR_APP_DEBUG,
 } app_mgr_app_id_t;
 
 typedef struct {
