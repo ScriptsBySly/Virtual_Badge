@@ -14,6 +14,17 @@ void render_init(void)
 }
 
 /************************************************
+* render_app_task
+* Runs the render service task owned by the app manager.
+* Parameters: ctx = unused task context.
+* Returns: 1 on graceful completion, 0 on failure.
+***************************************************/
+uint8_t render_app_task(void *ctx)
+{
+    return render_core_app_task(ctx);
+}
+
+/************************************************
 * render_bind_reader
 * Associates the active card reader with the render subsystem.
 * Parameters: dev = active card reader instance.

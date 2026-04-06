@@ -7,6 +7,7 @@
 #include <string.h>
 
 static render_state_t g_render_state;
+static uint8_t g_render_initialized = 0;
 
 /************************************************
 * render_process_request
@@ -38,27 +39,26 @@ static uint8_t render_process_request(const render_request_t *request)
     return 0;
 }
 
-#if defined(ESP_PLATFORM)
 /************************************************
-* render_task
+* render_core_run_loop
 * Runs the render queue pump and pushes queued requests to the display.
-* Parameters: arg = unused.
-* Returns: never returns.
+* Parameters: none.
+* Returns: void.
 ***************************************************/
-static void render_task(void *arg)
+static void render_core_run_loop(void)
 {
-    (void)arg;
-
     for (;;)
     {
         render_request_t request = {0};
         uint8_t has_request = 0;
 
         /* Drain the queue and keep only the newest request so rendering does not fall behind. */
+#if defined(ESP_PLATFORM)
         while (xQueueReceive(g_render_state.request_q, &request, 0) == pdTRUE)
         {
             has_request = 1;
         }
+#endif
 
         /* Only hand work to the pipeline when at least one request was waiting. */
         if (has_request)
@@ -67,19 +67,27 @@ static void render_task(void *arg)
         }
 
         /* Sleep for the configured render cadence before polling again. */
+#if defined(ESP_PLATFORM)
         vTaskDelay(pdMS_TO_TICKS(RENDER_TASK_PERIOD_MS));
+#else
+        break;
+#endif
     }
 }
-#endif
 
 /************************************************
 * render_core_init
-* Initializes render state, display access, and the render task.
+* Initializes render state, display access, and the render request queue.
 * Parameters: none.
 * Returns: void.
 ***************************************************/
 void render_core_init(void)
 {
+    if (g_render_initialized)
+    {
+        return;
+    }
+
     /* Reset all render-owned state so startup always begins from a known baseline. */
     memset(&g_render_state, 0, sizeof(g_render_state));
     /* Text init performs the shared display bring-up for the render subsystem. */
@@ -88,17 +96,26 @@ void render_core_init(void)
 #if defined(ESP_PLATFORM)
     /* The request queue is the handoff point between callers and the render task. */
     g_render_state.request_q = xQueueCreate(RENDER_QUEUE_LENGTH, sizeof(render_request_t));
-    if (g_render_state.request_q)
-    {
-        /* Start the background render worker only when the queue was created successfully. */
-        (void)xTaskCreate(render_task,
-                          "render",
-                          RENDER_TASK_STACK_WORDS,
-                          0,
-                          RENDER_TASK_PRIORITY,
-                          &g_render_state.task_handle);
-    }
 #endif
+    g_render_initialized = 1;
+}
+
+/************************************************
+* render_core_app_task
+* Runs the render service loop that consumes queued render requests.
+* Parameters: ctx = unused task context.
+* Returns: 1 on graceful completion, 0 on failure.
+***************************************************/
+uint8_t render_core_app_task(void *ctx)
+{
+    (void)ctx;
+
+    render_core_init();
+#if defined(ESP_PLATFORM)
+    g_render_state.task_handle = xTaskGetCurrentTaskHandle();
+#endif
+    render_core_run_loop();
+    return 1;
 }
 
 /************************************************
@@ -137,8 +154,8 @@ uint8_t render_core_queue_raw565(const char *name, uint16_t width, uint16_t heig
     }
 #endif
 
-    /* On non-RTOS builds, process the request immediately in the caller context. */
-    return render_process_request(&request);
+    /* Direct rendering is disallowed; only the render service task may consume requests. */
+    return 0;
 }
 
 /************************************************
@@ -168,6 +185,6 @@ uint8_t render_core_show_text_screen(const char *line0,
     }
 #endif
 
-    /* Without a background task, draw the text request immediately. */
-    return render_process_request(&request);
+    /* Direct rendering is disallowed; only the render service task may consume requests. */
+    return 0;
 }

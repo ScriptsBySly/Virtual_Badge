@@ -25,6 +25,7 @@ void app_mgr_core_init(app_mgr_state_t *state, app_mgr_app_id_t startup_app)
     state->active_app = APP_MGR_APP_NONE;
     state->app_id = 0;
     state->active_task_handle = 0;
+    state->service_task_handle = 0;
 }
 
 /************************************************
@@ -56,6 +57,7 @@ typedef struct {
 
 static void app_mgr_core_task_trampoline(void *arg);
 static app_mgr_state_t *app_mgr_core_launch_registered_app(app_mgr_state_t *state, app_mgr_app_id_t app_id);
+static uint8_t app_mgr_core_launch_render_service(app_mgr_state_t *state);
 static void app_mgr_core_handle_task_failure(app_mgr_state_t *state, app_mgr_app_id_t failed_app_id);
 static app_mgr_state_t *g_app_mgr_main_state = 0;
 static app_mgr_state_t *g_app_mgr_active_state = 0;
@@ -99,6 +101,50 @@ static uint8_t app_mgr_core_stop_task_app(app_mgr_state_t *state)
     {
         g_app_mgr_active_state = 0;
     }
+    return 1;
+}
+
+static uint8_t app_mgr_core_launch_render_service(app_mgr_state_t *state)
+{
+    const app_mgr_task_desc_t *desc = app_mgr_tasks_find(APP_MGR_APP_RENDER);
+    app_mgr_task_runtime_t *runtime = 0;
+
+    if (!state)
+    {
+        return 0;
+    }
+    if (state->service_task_handle)
+    {
+        return 1;
+    }
+    if (!desc || !desc->entry_fn)
+    {
+        return 0;
+    }
+
+    runtime = (app_mgr_task_runtime_t *)malloc(sizeof(*runtime));
+    if (!runtime)
+    {
+        return 0;
+    }
+
+    runtime->app_state = state;
+    runtime->app_id = APP_MGR_APP_RENDER;
+    runtime->entry_fn = desc->entry_fn;
+    runtime->task_ctx = desc->task_ctx;
+
+    if (xTaskCreate(app_mgr_core_task_trampoline,
+                    desc->task_name,
+                    desc->stack_words,
+                    runtime,
+                    desc->priority,
+                    &state->service_task_handle) != pdPASS)
+    {
+        free(runtime);
+        state->service_task_handle = 0;
+        return 0;
+    }
+
     return 1;
 }
 
@@ -196,16 +242,34 @@ static void app_mgr_core_task_trampoline(void *arg)
 
     if (!ok)
     {
-        app_mgr_core_handle_task_failure(state, app_id);
+        if (app_id == APP_MGR_APP_RENDER)
+        {
+            if (state)
+            {
+                state->service_task_handle = 0;
+                (void)app_mgr_core_launch_render_service(state);
+            }
+        }
+        else
+        {
+            app_mgr_core_handle_task_failure(state, app_id);
+        }
     }
     else if (state)
     {
-        state->active_task_handle = 0;
-        state->active_app = APP_MGR_APP_NONE;
-        state->app_id = 0;
-        if (g_app_mgr_active_state == state)
+        if (app_id == APP_MGR_APP_RENDER)
         {
-            g_app_mgr_active_state = 0;
+            state->service_task_handle = 0;
+        }
+        else
+        {
+            state->active_task_handle = 0;
+            state->active_app = APP_MGR_APP_NONE;
+            state->app_id = 0;
+            if (g_app_mgr_active_state == state)
+            {
+                g_app_mgr_active_state = 0;
+            }
         }
     }
 
@@ -240,6 +304,11 @@ app_mgr_state_t *app_mgr_core_launch(app_mgr_state_t *state)
     }
 
 #if defined(ESP_PLATFORM)
+    if (!app_mgr_core_launch_render_service(state))
+    {
+        return 0;
+    }
+
     if (g_app_mgr_active_state && g_app_mgr_active_state != state)
     {
         if (!app_mgr_core_stop_task_app(g_app_mgr_active_state))
