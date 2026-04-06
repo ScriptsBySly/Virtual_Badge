@@ -9,6 +9,9 @@ idf_component_register(
         "drivers/card_reader/card_reader_fat.c"
         "drivers/card_reader/card_reader_spi.c"
         "apps/animator.c"
+        "system/app_mgr/app_mgr_api.c"
+        "system/app_mgr/app_mgr_core.c"
+        "system/app_mgr/app_mgr_tasks.c"
         "hal/hal_esp32_idf.c"
     INCLUDE_DIRS
         "."
