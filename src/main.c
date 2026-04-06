@@ -1,6 +1,6 @@
 #include "drivers/card_reader/card_reader_api.h"
 #include "apps/animator.h"
-#include "drivers/display.h"
+#include "drivers/display/display_api.h"
 #include "hal/hal.h"
 
 #include <string.h>
