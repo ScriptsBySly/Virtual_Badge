@@ -17,7 +17,7 @@
 #define BAUD 115200UL
 #endif
 
-#define SPI_SD_FAST_HZ 40000000
+#define SPI_SD_FAST_HZ 1000000
 #define SPI_TFT_FAST_HZ 26000000
 #define SPI_SLOW_HZ 400000
 

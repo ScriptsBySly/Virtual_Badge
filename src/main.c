@@ -103,6 +103,35 @@ static void draw_error_screen(const char *name) {
     display_draw_text(0, 8, name, 0xFFFF, 0x0000);
 }
 
+static void draw_sd_status_overlay(const card_reader_state_t *dev) {
+    display_fill_color(0x0000);
+    display_draw_text(0, 0, "SD STATUS", 0xFFFF, 0x0000);
+    if (!dev) {
+        display_draw_text(0, 8, "SD:FAIL", 0xFFFF, 0x0000);
+        return;
+    }
+    char buf[32];
+    char *p = buf;
+    p = append_str(p, "SDHC:");
+    p = append_u8_dec(p, dev->status.sd_is_sdhc);
+    p = append_str(p, " FAT:");
+    p = append_u8_dec(p, dev->status.sd_fat32_ready);
+    *p = '\0';
+    display_draw_text(0, 8, buf, 0xFFFF, 0x0000);
+
+    p = buf;
+    p = append_str(p, "C0:");
+    p = append_hex32(p, dev->regs.sd_last_cmd0_r1);
+    *p = '\0';
+    display_draw_text(0, 16, buf, 0xFFFF, 0x0000);
+
+    p = buf;
+    p = append_str(p, "C8:");
+    p = append_hex32(p, dev->regs.sd_last_cmd8_r1);
+    *p = '\0';
+    display_draw_text(0, 24, buf, 0xFFFF, 0x0000);
+}
+
 #if defined(ESP_PLATFORM)
 typedef struct {
     char name[13];
@@ -321,9 +350,53 @@ static void app_run(void) {
     hal_init();
     display_init();
     display_fill_color(0x0000);
-    card_reader_state_t *dev = card_reader_file_open();
+    card_reader_state_t *dev = NULL;
+    uint8_t sd_attempt = 0;
+    while (!dev || !dev->status.sd_fat32_ready) {
+        if (dev) {
+            card_reader_file_close(dev);
+            dev = NULL;
+        }
+        hal_spi_sd_init();
+        hal_spi_sd_set_speed_very_slow();
+        hal_sd_cs_high();
+        hal_delay_ms(50);
+
+        dev = card_reader_file_open();
+        if (dev && dev->status.sd_fat32_ready) {
+            break;
+        }
+
+        display_fill_color(0x0000);
+        display_draw_text(0, 0, "WAIT SD", 0xFFFF, 0x0000);
+        char buf[32];
+        char *p = buf;
+        p = append_str(p, "TRY:");
+        p = append_u8_dec(p, sd_attempt);
+        *p = '\0';
+        display_draw_text(0, 8, buf, 0xFFFF, 0x0000);
+        if (dev) {
+            p = buf;
+            p = append_str(p, "C0:");
+            p = append_hex32(p, dev->regs.sd_last_cmd0_r1);
+            *p = '\0';
+            display_draw_text(0, 16, buf, 0xFFFF, 0x0000);
+
+            p = buf;
+            p = append_str(p, "C8:");
+            p = append_hex32(p, dev->regs.sd_last_cmd8_r1);
+            *p = '\0';
+            display_draw_text(0, 24, buf, 0xFFFF, 0x0000);
+        }
+        sd_attempt++;
+        hal_delay_ms(500);
+    }
+
+    draw_sd_status_overlay(dev);
+    hal_delay_ms(2000);
 
 #if defined(ESP_PLATFORM) && !TEST_SCREEN_DEBUG && !TEST_RGB_CYCLE && !TEST_LED_BLINK
+#if 0
     const uint32_t frame_bytes = (uint32_t)TFT_WIDTH * (uint32_t)TFT_HEIGHT * 2u;
     frame_buffer_t buffers[2] = {0};
     for (uint8_t i = 0; i < 2; i++) {
@@ -356,29 +429,6 @@ static void app_run(void) {
         xTaskCreate(frame_display_task, "frame_display", 4096, &ctx, 5, NULL);
     }
 #endif
-
-#if TEST_SCREEN_DEBUG
-    uint16_t refresh_timer = 0;
-    while (1) {
-        if (refresh_timer <= TICK_MS) {
-            refresh_timer = 1000u;
-            display_fill_color(0x0000);
-
-            uint8_t line = 0;
-            char buf[32];
-
-            display_draw_text(0, (uint16_t)(line++ * 8u), "DEBUG", 0xFFFF, 0x0000);
-
-            char *p = buf;
-            p = append_str(p, dev ? "DEV:OK" : "DEV:NULL");
-            *p = '\0';
-            display_draw_text(0, (uint16_t)(line++ * 8u), buf, 0xFFFF, 0x0000);
-        } else {
-            refresh_timer -= TICK_MS;
-        }
-
-        hal_delay_ms(TICK_MS);
-    }
 #endif
 
 #if TEST_RGB_CYCLE
