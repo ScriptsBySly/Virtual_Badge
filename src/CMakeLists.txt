@@ -8,7 +8,7 @@ idf_component_register(
         "drivers/card_reader/card_reader_core.c"
         "drivers/card_reader/card_reader_fat.c"
         "drivers/card_reader/card_reader_spi.c"
-        "apps/animator.c"
+        "apps/animator/animator.c"
         "system/app_mgr/app_mgr_api.c"
         "system/app_mgr/app_mgr_core.c"
         "system/app_mgr/app_mgr_tasks.c"
