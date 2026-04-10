@@ -11,10 +11,12 @@
 #endif
 
 enum {
-    RENDER_QUEUE_LENGTH = 1u,
+    RENDER_QUEUE_LENGTH = 4u,
+    RENDER_INTER_FRAME_DELAY_MS = 60u,
     RENDER_TASK_STACK_WORDS = 4096u,
     RENDER_TASK_PRIORITY = 5u,
-    RENDER_CACHE_ENTRIES = 4u,
+    RENDER_PRIMARY_CACHE_ENTRIES = 4u,
+    RENDER_SECONDARY_CACHE_ENTRIES = 4u,
     RENDER_NAME_CAPACITY = 13u,
     RENDER_BYTES_PER_PIXEL = 2u,
     RENDER_MAX_STREAM_CHUNK = 0xFFFFu,
@@ -56,8 +58,10 @@ typedef struct {
     card_reader_state_t *reader;
     uint8_t *frame_buffer;
     uint32_t frame_buffer_capacity;
-    render_cache_entry_t cache[RENDER_CACHE_ENTRIES];
-    uint8_t cache_next;
+    render_cache_entry_t primary_cache[RENDER_PRIMARY_CACHE_ENTRIES];
+    render_cache_entry_t secondary_cache[RENDER_SECONDARY_CACHE_ENTRIES];
+    uint8_t primary_cache_next;
+    uint8_t secondary_cache_next;
 #if defined(ESP_PLATFORM)
     QueueHandle_t request_q;
     TaskHandle_t task_handle;

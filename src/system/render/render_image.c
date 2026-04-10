@@ -1,16 +1,14 @@
 #include "system/render/render_image.h"
 
+#include "system/render/render_cache.h"
 #include "system/render/render_text.h"
 
 #include "drivers/card_reader/card_reader_api.h"
 #include "drivers/display/display_api.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#if defined(ESP_PLATFORM)
-#include "esp_heap_caps.h"
-#endif
 
 /************************************************
 * render_stream_bytes_cache
@@ -61,128 +59,6 @@ static void render_display_bytes(const uint8_t *data, uint32_t size)
         display_stream_bytes(data + offset, chunk);
         offset += chunk;
     }
-}
-
-/************************************************
-* render_cache_find
-* Searches the image cache for a matching file name and size.
-* Parameters: state = render state, name = file name, expected_size = byte count.
-* Returns: matching cache entry, or NULL when not found.
-***************************************************/
-static render_cache_entry_t *render_cache_find(render_state_t *state, const char *name, uint32_t expected_size)
-{
-    uint8_t i = 0;
-
-    /* A cache lookup only makes sense when both state and a file name are present. */
-    if (!state || !name)
-    {
-        return 0;
-    }
-
-    /* Match on both size and name so different assets cannot alias the same slot. */
-    for (i = 0; i < RENDER_CACHE_ENTRIES; i++)
-    {
-        render_cache_entry_t *entry = &state->cache[i];
-        if (!entry->valid || entry->size != expected_size)
-        {
-            continue;
-        }
-        if (strncmp(entry->name, name, sizeof(entry->name)) == 0)
-        {
-            return entry;
-        }
-    }
-
-    return 0;
-}
-
-/************************************************
-* render_cache_prepare_entry
-* Ensures a cache slot owns storage for the requested image metadata.
-* Parameters: entry = cache slot, name = file name, expected_size = byte count.
-* Returns: 1 on success, 0 on failure.
-***************************************************/
-static uint8_t render_cache_prepare_entry(render_cache_entry_t *entry,
-                                          const char *name,
-                                          uint32_t expected_size)
-{
-    uint8_t i = 0;
-
-    /* We need both a destination slot and a file name to prepare cache metadata. */
-    if (!entry || !name)
-    {
-        return 0;
-    }
-
-    /* Allocate or resize backing storage whenever the slot cannot hold this image size. */
-    if (!entry->data || entry->size != expected_size)
-    {
-#if defined(ESP_PLATFORM)
-        /* Prefer PSRAM for frame assets, then fall back to normal heap if unavailable. */
-        void *new_data = heap_caps_malloc(expected_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!new_data)
-        {
-            new_data = malloc(expected_size);
-        }
-#else
-        void *new_data = malloc(expected_size);
-#endif
-        if (!new_data)
-        {
-            entry->valid = 0;
-            return 0;
-        }
-        /* Release the old buffer only after we have a replacement ready. */
-        if (entry->data)
-        {
-            free(entry->data);
-        }
-        entry->data = (uint8_t *)new_data;
-        entry->size = expected_size;
-    }
-
-    /* Copy the file name into the fixed-size slot and leave room for a terminator. */
-    for (i = 0; i < sizeof(entry->name) - 1u; i++)
-    {
-        entry->name[i] = name[i];
-        if (!name[i])
-        {
-            break;
-        }
-    }
-    entry->name[sizeof(entry->name) - 1u] = '\0';
-    entry->valid = 1;
-    return 1;
-}
-
-/************************************************
-* render_cache_store
-* Stores a rendered image buffer into the rotating in-memory cache.
-* Parameters: state = render state, name = file name, data = source bytes, size = byte count.
-* Returns: void.
-***************************************************/
-static void render_cache_store(render_state_t *state, const char *name, const uint8_t *data, uint32_t size)
-{
-    render_cache_entry_t *entry = 0;
-
-    /* Without render state there is nowhere to cache the finished image. */
-    if (!state)
-    {
-        return;
-    }
-
-    /* Use a simple rotating slot index so cache replacement stays predictable and cheap. */
-    entry = &state->cache[state->cache_next];
-    state->cache_next = (uint8_t)((state->cache_next + 1u) % RENDER_CACHE_ENTRIES);
-
-    /* Skip caching if we cannot prepare the target slot. */
-    if (!data || !render_cache_prepare_entry(entry, name, size))
-    {
-        return;
-    }
-
-    /* Copy the just-loaded frame into the cache for faster reuse on the next request. */
-    memcpy(entry->data, data, size);
 }
 
 /************************************************
@@ -248,7 +124,7 @@ static uint8_t render_load_raw565(render_state_t *state,
                                   uint32_t capacity)
 {
     const uint32_t expected_size = (uint32_t)width * (uint32_t)height * RENDER_BYTES_PER_PIXEL;
-    render_cache_entry_t *hit = render_cache_find(state, name, expected_size);
+    render_cache_entry_t *hit = render_cache_find_any(state, name, expected_size);
     render_copy_ctx_t sink = {
         .dst = dst,
         .offset = 0,
@@ -264,18 +140,21 @@ static uint8_t render_load_raw565(render_state_t *state,
     /* Serve cache hits immediately to avoid touching the SD card again. */
     if (hit)
     {
+        printf("C:%s\n", name);
         memcpy(dst, hit->data, expected_size);
         return 1;
     }
 
     /* Stream the file from storage into the destination buffer when no cache hit exists. */
+    printf("L:%s\n", name);
     if (!card_reader_file_read(state->reader, name, expected_size, render_stream_bytes_cache, &sink))
     {
+        printf("F:%s\n", name);
         return 0;
     }
 
     /* Store the freshly loaded image so repeated frames can be reused from memory. */
-    render_cache_store(state, name, dst, expected_size);
+    (void)render_cache_store_primary(state, name, dst, expected_size);
     return 1;
 }
 
@@ -347,6 +226,7 @@ uint8_t render_image_process_request(render_state_t *state, const render_request
     }
 
     /* Point the controller at the target frame area and stream the decoded bytes. */
+    printf("S:%s\n", request->payload.raw565.name);
     display_set_addr_window(request->payload.raw565.width, request->payload.raw565.height);
     render_display_bytes(state->frame_buffer, expected_size);
     return 1;

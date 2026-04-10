@@ -116,7 +116,7 @@ static uint8_t animator_draw_frame(card_reader_state_t *dev,
     uint8_t ok = 0;
 
     animator_build_raw_name(name, state);
-    printf("%s\n", name);
+    printf("A:%s\n", name);
     (void)dev;
     ok = render_queue_raw565(name, TFT_WIDTH, TFT_HEIGHT);
     if (!ok)

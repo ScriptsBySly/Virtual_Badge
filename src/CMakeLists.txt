@@ -14,6 +14,7 @@ set(APP_SRCS
     "drivers/card_reader/card_reader_spi.c"
     "apps/animator/animator.c"
     "system/render/render_api.c"
+    "system/render/render_cache.c"
     "system/render/render_core.c"
     "system/render/render_image.c"
     "system/render/render_text.c"
