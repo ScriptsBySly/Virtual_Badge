@@ -147,13 +147,9 @@ static void animator_blink_start(blink_state_t *b)
 {
     b->active = 1;
     b->step = 0;
-    b->mode = 1;//animator_rng8() % 4u;
+    b->mode = animator_rng8() % 4u;
     
-    if  (b->mode == 0)
-    {
-        b->remaining_ms = 100u;
-    }
-    else if  (b->mode == 2)
+    if  (b->mode == 2)
     {
         b->remaining_ms = 1000u;
     }
