@@ -50,28 +50,24 @@ static void render_core_run_loop(void)
     for (;;)
     {
         render_request_t request = {0};
-        uint8_t has_request = 0;
 
-        /* Drain the queue and keep only the newest request so rendering does not fall behind. */
 #if defined(ESP_PLATFORM)
+        /* Sleep here until at least one render request arrives. */
+        if (xQueueReceive(g_render_state.request_q, &request, portMAX_DELAY) != pdTRUE)
+        {
+            continue;
+        }
+        /* After waking, drain any extra queued item so the newest request wins. */
         while (xQueueReceive(g_render_state.request_q, &request, 0) == pdTRUE)
         {
-            has_request = 1;
+            /* Intentionally keep overwriting request with the latest queued work. */
         }
-#endif
-
-        /* Only hand work to the pipeline when at least one request was waiting. */
-        if (has_request)
-        {
-            (void)render_process_request(&request);
-        }
-
-        /* Sleep for the configured render cadence before polling again. */
-#if defined(ESP_PLATFORM)
-        vTaskDelay(pdMS_TO_TICKS(RENDER_TASK_PERIOD_MS));
 #else
         break;
 #endif
+
+        /* Process the newest request collected during this wake-up cycle. */
+        (void)render_process_request(&request);
     }
 }
 
