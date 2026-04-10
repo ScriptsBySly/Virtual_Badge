@@ -191,6 +191,46 @@ uint8_t render_image_queue_request(render_request_t *request,
 }
 
 /************************************************
+* render_image_preload_primary
+* Loads a RAW565 image into the primary cache without rendering it.
+* Parameters: state = render state, name = file name, width = image width,
+*             height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_image_preload_primary(render_state_t *state,
+                                     const char *name,
+                                     uint16_t width,
+                                     uint16_t height)
+{
+    const uint32_t expected_size = (uint32_t)width * (uint32_t)height * RENDER_BYTES_PER_PIXEL;
+
+    /* Preload requires a render state, a bound reader, and enough scratch space to read the image once. */
+    if (!state || !state->reader || !name)
+    {
+        return 0;
+    }
+
+    /* A primary-cache hit means this image is already ready for later rendering. */
+    if (render_cache_find_any(state, name, expected_size))
+    {
+        return 1;
+    }
+
+    /* Reuse the shared frame buffer as temporary storage while loading into cache. */
+    if (!render_ensure_frame_buffer(state, expected_size))
+    {
+        return 0;
+    }
+
+    return render_load_raw565(state,
+                              name,
+                              width,
+                              height,
+                              state->frame_buffer,
+                              state->frame_buffer_capacity);
+}
+
+/************************************************
 * render_image_process_request
 * Loads and displays a queued RAW565 request through the image pipeline.
 * Parameters: state = render state, request = image request to process.

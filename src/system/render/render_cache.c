@@ -179,6 +179,23 @@ void render_cache_init(render_state_t *state)
 }
 
 /************************************************
+* render_cache_reset_primary
+* Clears the startup-managed primary cache bank.
+* Parameters: state = render state that owns the caches.
+* Returns: void.
+***************************************************/
+void render_cache_reset_primary(render_state_t *state)
+{
+    if (!state)
+    {
+        return;
+    }
+
+    render_cache_clear_bank(state->primary_cache, RENDER_PRIMARY_CACHE_ENTRIES);
+    state->primary_cache_next = 0;
+}
+
+/************************************************
 * render_cache_reset_secondary
 * Clears the on-demand secondary cache bank.
 * Parameters: state = render state that owns the caches.
@@ -193,6 +210,23 @@ void render_cache_reset_secondary(render_state_t *state)
 
     render_cache_clear_bank(state->secondary_cache, RENDER_SECONDARY_CACHE_ENTRIES);
     state->secondary_cache_next = 0;
+}
+
+/************************************************
+* render_cache_reset_all
+* Clears both the primary and secondary render cache banks.
+* Parameters: state = render state that owns the caches.
+* Returns: void.
+***************************************************/
+void render_cache_reset_all(render_state_t *state)
+{
+    if (!state)
+    {
+        return;
+    }
+
+    render_cache_reset_primary(state);
+    render_cache_reset_secondary(state);
 }
 
 /************************************************

@@ -1,5 +1,6 @@
 #include "system/app_mgr/app_mgr_core.h"
 #include "system/app_mgr/app_mgr_tasks.h"
+#include "system/render/render_api.h"
 
 #include <stdlib.h>
 
@@ -232,6 +233,12 @@ static app_mgr_state_t *app_mgr_core_launch_registered_app(app_mgr_state_t *stat
     if (!state || !desc || !desc->entry_fn)
     {
         return 0;
+    }
+
+    /* Display apps get a fresh cache set so they do not inherit frame data from the previous app. */
+    if (desc->uses_display)
+    {
+        render_reset_caches();
     }
 
     runtime = (app_mgr_task_runtime_t *)malloc(sizeof(*runtime));

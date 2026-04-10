@@ -37,6 +37,18 @@ void render_bind_reader(card_reader_state_t *dev)
 }
 
 /************************************************
+* render_reset_caches
+* Clears all render-owned image caches before a display app starts using them.
+* Parameters: none.
+* Returns: void.
+***************************************************/
+void render_reset_caches(void)
+{
+    /* Cache lifetime policy is owned by the render subsystem, even when app_mgr triggers it. */
+    render_core_reset_caches();
+}
+
+/************************************************
 * render_queue_raw565
 * Queues a RAW565 image request for asynchronous or immediate rendering.
 * Parameters: name = file name, width = image width, height = image height.
@@ -46,6 +58,18 @@ uint8_t render_queue_raw565(const char *name, uint16_t width, uint16_t height)
 {
     /* Image requests always flow through the core so task/queue behavior stays centralized. */
     return render_core_queue_raw565(name, width, height);
+}
+
+/************************************************
+* render_preload_raw565_primary
+* Loads a RAW565 image into the primary cache before it is needed on screen.
+* Parameters: name = file name, width = image width, height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_preload_raw565_primary(const char *name, uint16_t width, uint16_t height)
+{
+    /* Preload requests use the same core-owned image path so cache state stays centralized. */
+    return render_core_preload_raw565_primary(name, width, height);
 }
 
 /************************************************

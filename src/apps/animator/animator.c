@@ -227,6 +227,31 @@ static void animator_show_wait_sd_status(const char *line0,
     (void)render_show_text_screen(line0, line1, line2, line3);
 }
 
+/************************************************
+* animator_preload_primary_frames
+* Loads the normal animator face frames into the render primary cache.
+* Parameters: none.
+* Returns: void.
+***************************************************/
+static void animator_preload_primary_frames(void)
+{
+    static const char *const frame_names[] = {
+        "HUEOMC.RAW",
+        "HDEOMC.RAW",
+        "HUEMMC.RAW",
+        "HDEMMC.RAW",
+        "HUECMC.RAW",
+        "HDECMC.RAW",
+    };
+    uint8_t i = 0;
+
+    /* Preload only the regular face-animation frames; event frames stay on-demand for now. */
+    for (i = 0; i < (uint8_t)(sizeof(frame_names) / sizeof(frame_names[0])); i++)
+    {
+        (void)render_preload_raw565_primary(frame_names[i], TFT_WIDTH, TFT_HEIGHT);
+    }
+}
+
 uint8_t animator_app_task(void *ctx)
 {
     (void)ctx;
@@ -235,6 +260,8 @@ uint8_t animator_app_task(void *ctx)
     card_reader_state_t *dev = card_reader_wait_ready(animator_show_wait_sd_status, 0);
     /* Once storage is ready, give render access to the card reader for image loads. */
     render_bind_reader(dev);
+    /* Fill the primary cache with the regular animator frames before the loop begins. */
+    animator_preload_primary_frames();
     /* Show a brief SD status screen before the animation loop begins. */
     animator_draw_sd_status_overlay(dev);
     

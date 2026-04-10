@@ -16,6 +16,7 @@ typedef struct {
     void *task_ctx;
     app_mgr_task_role_t role;
     uint8_t auto_start;
+    uint8_t uses_display;
 } app_mgr_task_desc_t;
 
 const app_mgr_task_desc_t *app_mgr_tasks_find(app_mgr_app_id_t app_id);

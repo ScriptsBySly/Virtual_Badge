@@ -165,6 +165,18 @@ void render_core_bind_reader(card_reader_state_t *dev)
 }
 
 /************************************************
+* render_core_reset_caches
+* Clears both render cache banks managed by the render subsystem.
+* Parameters: none.
+* Returns: void.
+***************************************************/
+void render_core_reset_caches(void)
+{
+    /* Keep cache ownership centralized in render so app_mgr never manipulates cache state directly. */
+    render_cache_reset_all(&g_render_state);
+}
+
+/************************************************
 * render_core_queue_raw565
 * Queues a RAW565 frame request for the render pipeline.
 * Parameters: name = file name, width = frame width, height = frame height.
@@ -194,6 +206,18 @@ uint8_t render_core_queue_raw565(const char *name, uint16_t width, uint16_t heig
     /* Direct rendering is disallowed; only the render service task may consume requests. */
     printf("Q?:%s\n", request.payload.raw565.name);
     return 0;
+}
+
+/************************************************
+* render_core_preload_raw565_primary
+* Loads a RAW565 image into the primary cache without queueing it for display.
+* Parameters: name = file name, width = image width, height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_core_preload_raw565_primary(const char *name, uint16_t width, uint16_t height)
+{
+    /* Only the render subsystem may touch image loading and cache ownership directly. */
+    return render_image_preload_primary(&g_render_state, name, width, height);
 }
 
 /************************************************

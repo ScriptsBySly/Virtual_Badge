@@ -22,6 +22,7 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .task_ctx = 0,
         .role = APP_MGR_TASK_ROLE_SERVICE,
         .auto_start = 1,
+        .uses_display = 0,
     },
 #ifdef DEBUG_APP_ENABLED
     {
@@ -33,6 +34,7 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .task_ctx = 0,
         .role = APP_MGR_TASK_ROLE_APP,
         .auto_start = 0,
+        .uses_display = 1,
     },
 #else
     {
@@ -44,6 +46,7 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .task_ctx = 0,
         .role = APP_MGR_TASK_ROLE_APP,
         .auto_start = 0,
+        .uses_display = 1,
     },
 #endif
 };
