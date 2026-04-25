@@ -22,6 +22,10 @@ enum {
     BLINK_RANDOM_BASE_DELAY_MS = 2000u,
     BLINK_RANDOM_STEP_DELAY_MS = 500u,
     BLINK_RANDOM_STEP_COUNT = 8u,
+    EVENT_DURATION_MS = 4000u,
+    EVENT_RANDOM_BASE_DELAY_MS = 4000u,
+    EVENT_RANDOM_STEP_DELAY_MS = 500u,
+    EVENT_RANDOM_STEP_COUNT = 12u,
 };
 
 typedef enum {
@@ -213,6 +217,65 @@ static uint8_t animator_blink_tick(blink_state_t *b, uint16_t tick_ms)
     return 1;
 }
 
+/************************************************
+* animator_random_event
+* Chooses the next non-neutral animator event to display.
+* Parameters: none.
+* Returns: event id.
+***************************************************/
+static event_type_t animator_random_event(void)
+{
+    switch (animator_rng8() % 3u)
+    {
+        case 0:
+            return EVENT_HAPPY;
+        case 1:
+            return EVENT_SADNEW;
+        default:
+            return EVENT_MAD;
+    }
+}
+
+/************************************************
+* animator_preload_secondary_event
+* Loads the HU and HD frames for one event into the secondary cache.
+* Parameters: ev = event whose images should be staged next.
+* Returns: void.
+***************************************************/
+static void animator_preload_secondary_event(event_type_t ev)
+{
+    char hu_name[13] = {0};
+    char hd_name[13] = {0};
+    const char *names[2] = {0};
+
+    if (ev == EVENT_NONE)
+    {
+        return;
+    }
+
+    animator_build_event_name(hu_name, "HU", ev);
+    animator_build_event_name(hd_name, "HD", ev);
+    names[0] = hu_name;
+    names[1] = hd_name;
+    (void)render_queue_preload_raw565_secondary_list(names, 2u, TFT_WIDTH, TFT_HEIGHT);
+}
+
+/************************************************
+* animator_secondary_event_ready
+* Reports whether both staged frames for one event are ready in the secondary cache.
+* Parameters: ev = event whose HU and HD frames should be checked.
+* Returns: 1 when both frames are ready, 0 otherwise.
+***************************************************/
+static uint8_t animator_secondary_event_ready(event_type_t ev)
+{
+    if (ev == EVENT_NONE)
+    {
+        return 0;
+    }
+
+    return render_secondary_preload_ready();
+}
+
 static void animator_show_wait_sd_status(const char *line0,
                                          const char *line1,
                                          const char *line2,
@@ -251,6 +314,7 @@ static void animator_preload_primary_frames(void)
 uint8_t animator_app_task(void *ctx)
 {
     (void)ctx;
+    printf("DBG:A4\n");
 
     /* Block here until the SD card is fully usable, showing wait status through render. */
     card_reader_state_t *dev = card_reader_wait_ready(animator_show_wait_sd_status, 0);
@@ -270,6 +334,14 @@ uint8_t animator_app_task(void *ctx)
         uint16_t frame_timer = FRAME_INTERVAL_MS;
         /* blink_timer decides when the next blink sequence should begin. */
         uint16_t blink_timer = animator_ms_to_ticks(BLINK_START_DELAY_MS);
+        /* event_timer decides when the next temporary expression event begins. */
+        uint16_t event_timer = animator_ms_to_ticks(EVENT_RANDOM_BASE_DELAY_MS);
+        /* event_remaining tracks how long the current event frame should stay active. */
+        uint16_t event_remaining = 0;
+        /* current_event stores which temporary expression is active right now. */
+        event_type_t current_event = EVENT_NONE;
+        /* next_event stays staged in the secondary cache until it is time to play it. */
+        event_type_t next_event = animator_random_event();
         /* blink holds the in-progress blink state machine, if any. */
         blink_state_t blink = {0};
         /* pixel_head_states holds the full face state used to build frame filenames. */
@@ -279,6 +351,8 @@ uint8_t animator_app_task(void *ctx)
             .mouth = "MC",
         };
 
+        /* Stage the first event frames in the secondary cache before the main loop begins. */
+        animator_preload_secondary_event(next_event);
 
         while (1)
         {
@@ -291,8 +365,15 @@ uint8_t animator_app_task(void *ctx)
                     frame_timer = FRAME_INTERVAL_MS;
                     base_index ^= 1u;
                     pixel_head_states.head = bases[base_index];
-                    /* Only the neutral HU/HD animation is active, so redraw that frame directly. */
-                    animator_draw_frame(dev, &pixel_head_states);
+                    /* Event frames follow the current head position while the temporary expression is active. */
+                    if (current_event != EVENT_NONE)
+                    {
+                        animator_draw_event_frame(dev, &pixel_head_states, current_event);
+                    }
+                    else
+                    {
+                        animator_draw_frame(dev, &pixel_head_states);
+                    }
                     continue;
                 }
                 else
@@ -300,8 +381,53 @@ uint8_t animator_app_task(void *ctx)
                     frame_timer -= TICK_MS;
                 }
 
+                /* Active events temporarily replace the neutral face until their timer expires. */
+                if (current_event != EVENT_NONE)
+                {
+                    if (event_remaining <= TICK_MS)
+                    {
+                        current_event = EVENT_NONE;
+                        event_remaining = 0;
+                        /* Drop stale queued event frames before returning to the neutral animation. */
+                        render_drop_pending_draws();
+                        /* Once the current event is done, rotate the short-lived cache to the next event set. */
+                        (void)render_queue_reset_secondary_cache();
+                        next_event = animator_random_event();
+                        animator_preload_secondary_event(next_event);
+                        animator_draw_frame(dev, &pixel_head_states);
+                    }
+                    else
+                    {
+                        event_remaining -= TICK_MS;
+                    }
+                }
+                /* No event is active, so count down until it is time to show a temporary expression. */
+                else if (event_timer <= TICK_MS)
+                {
+                    /* Wait until render confirms both staged event frames are really in secondary cache. */
+                    if (animator_secondary_event_ready(next_event))
+                    {
+                        printf("EV:S:%u\n", (unsigned)next_event);
+                        /* Drop stale neutral frames so the event begins cleanly on its first image. */
+                        render_drop_pending_draws();
+                        current_event = next_event;
+                        event_remaining = animator_ms_to_ticks(EVENT_DURATION_MS);
+                        animator_draw_event_frame(dev, &pixel_head_states, current_event);
+                        event_timer = animator_ms_to_ticks((uint16_t)(EVENT_RANDOM_BASE_DELAY_MS +
+                            (uint16_t)(animator_rng8() % EVENT_RANDOM_STEP_COUNT) * EVENT_RANDOM_STEP_DELAY_MS));
+                    }
+                    else
+                    {
+                        printf("EV:W:%u\n", (unsigned)next_event);
+                    }
+                }
+                else
+                {
+                    event_timer -= TICK_MS;
+                }
+
                 /* Blink logic runs first so the eye state is ready before any head-frame redraw. */
-                if (!blink.active)
+                if (current_event == EVENT_NONE && !blink.active)
                 {
                     /* No blink is in progress, so count down until it is time to start one. */
                     if (blink_timer <= TICK_MS)
@@ -320,21 +446,13 @@ uint8_t animator_app_task(void *ctx)
                     }
                 }
                 /* A blink is already active, so advance its step machine. */
-                else if (animator_blink_tick(&blink, TICK_MS))
+                else if (current_event == EVENT_NONE && animator_blink_tick(&blink, TICK_MS))
                 {
-                    //pixel_head_states.eyes = "EO";
                     /* Blink is still mid-sequence, so update the tracked eye state only. */
                     pixel_head_states.eyes = animator_blink_eyes_for_step(&blink);
                     /* When the blink finishes, redraw with open eyes. */
                     animator_draw_frame(dev, &pixel_head_states);
                 }
-                else
-                {
-                    // /* Blink is still mid-sequence, so update the tracked eye state only. */
-                    // pixel_head_states.eyes = animator_blink_eyes_for_step(&blink);
-                }
-
-
             }
 
             /* Run the whole animation state machine at a fixed tick rate. */

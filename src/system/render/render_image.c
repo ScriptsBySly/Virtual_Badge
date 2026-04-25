@@ -110,6 +110,51 @@ static uint8_t render_ensure_frame_buffer(render_state_t *state, uint32_t requir
 }
 
 /************************************************
+* render_ensure_secondary_preload_buffer
+* Allocates or grows the scratch buffer used only by the secondary preload worker.
+* Parameters: state = render state, required_size = minimum byte capacity.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+static uint8_t render_ensure_secondary_preload_buffer(render_state_t *state, uint32_t required_size)
+{
+    if (!state)
+    {
+        return 0;
+    }
+
+    if (state->secondary_preload_buffer &&
+        state->secondary_preload_buffer_capacity >= required_size)
+    {
+        return 1;
+    }
+
+    if (state->secondary_preload_buffer)
+    {
+        free(state->secondary_preload_buffer);
+        state->secondary_preload_buffer = 0;
+        state->secondary_preload_buffer_capacity = 0;
+    }
+
+#if defined(ESP_PLATFORM)
+    state->secondary_preload_buffer =
+        (uint8_t *)heap_caps_malloc(required_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!state->secondary_preload_buffer)
+    {
+        state->secondary_preload_buffer = (uint8_t *)malloc(required_size);
+    }
+#else
+    state->secondary_preload_buffer = (uint8_t *)malloc(required_size);
+#endif
+    if (!state->secondary_preload_buffer)
+    {
+        return 0;
+    }
+
+    state->secondary_preload_buffer_capacity = required_size;
+    return 1;
+}
+
+/************************************************
 * render_load_raw565
 * Loads a RAW565 image into the provided buffer, using cache when available.
 * Parameters: state = render state, name = file name, width = image width,
@@ -124,7 +169,6 @@ static uint8_t render_load_raw565(render_state_t *state,
                                   uint32_t capacity)
 {
     const uint32_t expected_size = (uint32_t)width * (uint32_t)height * RENDER_BYTES_PER_PIXEL;
-    render_cache_entry_t *hit = render_cache_find_any(state, name, expected_size);
     render_copy_ctx_t sink = {
         .dst = dst,
         .offset = 0,
@@ -138,10 +182,9 @@ static uint8_t render_load_raw565(render_state_t *state,
     }
 
     /* Serve cache hits immediately to avoid touching the SD card again. */
-    if (hit)
+    if (render_cache_copy_any(state, name, expected_size, dst, capacity))
     {
         printf("C:%s\n", name);
-        memcpy(dst, hit->data, expected_size);
         return 1;
     }
 
@@ -191,6 +234,69 @@ uint8_t render_image_queue_request(render_request_t *request,
 }
 
 /************************************************
+* render_image_queue_preload_secondary_request
+* Populates a render request that preloads a RAW565 image into the secondary cache.
+* Parameters: request = output request, name = file name, width = image width,
+*             height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_image_queue_preload_secondary_request(render_request_t *request,
+                                                     const char *name,
+                                                     uint16_t width,
+                                                     uint16_t height)
+{
+    if (!render_image_queue_request(request, name, width, height))
+    {
+        return 0;
+    }
+
+    request->type = RENDER_REQUEST_PRELOAD_SECONDARY;
+    return 1;
+}
+
+/************************************************
+* render_image_queue_preload_secondary_list_request
+* Populates one render request with a batch of secondary-cache preload names.
+* Parameters: request = output request, names = file name list, count = number of files,
+*             width = image width, height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_image_queue_preload_secondary_list_request(render_request_t *request,
+                                                          const char *const *names,
+                                                          uint8_t count,
+                                                          uint16_t width,
+                                                          uint16_t height)
+{
+    uint8_t i = 0;
+    uint8_t j = 0;
+
+    if (!request || !names || count == 0 || count > RENDER_PRELOAD_LIST_CAPACITY)
+    {
+        return 0;
+    }
+
+    request->type = RENDER_REQUEST_PRELOAD_SECONDARY;
+    request->payload.preload_secondary.width = width;
+    request->payload.preload_secondary.height = height;
+    request->payload.preload_secondary.count = count;
+
+    for (i = 0; i < count; i++)
+    {
+        if (!names[i])
+        {
+            return 0;
+        }
+        for (j = 0; j < (uint8_t)(RENDER_NAME_CAPACITY - 1u) && names[i][j]; j++)
+        {
+            request->payload.preload_secondary.names[i][j] = names[i][j];
+        }
+        request->payload.preload_secondary.names[i][RENDER_NAME_CAPACITY - 1u] = '\0';
+    }
+
+    return 1;
+}
+
+/************************************************
 * render_image_preload_primary
 * Loads a RAW565 image into the primary cache without rendering it.
 * Parameters: state = render state, name = file name, width = image width,
@@ -228,6 +334,60 @@ uint8_t render_image_preload_primary(render_state_t *state,
                               height,
                               state->frame_buffer,
                               state->frame_buffer_capacity);
+}
+
+/************************************************
+* render_image_preload_secondary
+* Loads a RAW565 image into the secondary cache without rendering it.
+* Parameters: state = render state, name = file name, width = image width,
+*             height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_image_preload_secondary(render_state_t *state,
+                                       const char *name,
+                                       uint16_t width,
+                                       uint16_t height)
+{
+    const uint32_t expected_size = (uint32_t)width * (uint32_t)height * RENDER_BYTES_PER_PIXEL;
+    render_copy_ctx_t sink = {0};
+
+    if (!state || !state->reader || !name)
+    {
+        printf("PS:0:%s\n", name ? name : "?");
+        return 0;
+    }
+
+    if (render_cache_find_any(state, name, expected_size))
+    {
+        printf("PS:C:%s\n", name);
+        return 1;
+    }
+
+    if (!render_ensure_secondary_preload_buffer(state, expected_size))
+    {
+        printf("PS:B:%s\n", name);
+        return 0;
+    }
+
+    sink.dst = state->secondary_preload_buffer;
+    sink.offset = 0;
+    sink.capacity = state->secondary_preload_buffer_capacity;
+
+    printf("PS:L:%s\n", name);
+    if (!card_reader_file_read(state->reader, name, expected_size, render_stream_bytes_cache, &sink))
+    {
+        printf("PS:F:%s\n", name);
+        return 0;
+    }
+
+    if (!render_cache_store_secondary(state, name, state->secondary_preload_buffer, expected_size))
+    {
+        printf("PS:S:%s\n", name);
+        return 0;
+    }
+
+    printf("PS:1:%s\n", name);
+    return 1;
 }
 
 /************************************************

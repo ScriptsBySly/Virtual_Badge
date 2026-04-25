@@ -49,6 +49,54 @@ void render_reset_caches(void)
 }
 
 /************************************************
+* render_reset_secondary_cache
+* Clears only the short-lived secondary render cache.
+* Parameters: none.
+* Returns: void.
+***************************************************/
+void render_reset_secondary_cache(void)
+{
+    /* The secondary cache stays render-owned even when apps control its lifetime policy. */
+    render_core_reset_secondary_cache();
+}
+
+/************************************************
+* render_drop_pending_draws
+* Removes any queued draw requests that have not been rendered yet.
+* Parameters: none.
+* Returns: void.
+***************************************************/
+void render_drop_pending_draws(void)
+{
+    /* Transition points can discard stale image draws while leaving render-owned control work intact. */
+    render_core_drop_pending_draws();
+}
+
+/************************************************
+* render_secondary_preload_ready
+* Reports whether the current secondary preload batch finished inside render.
+* Parameters: none.
+* Returns: 1 when ready, 0 otherwise.
+***************************************************/
+uint8_t render_secondary_preload_ready(void)
+{
+    /* Apps can observe preload completion, but render still owns the state transition. */
+    return render_core_secondary_preload_ready();
+}
+
+/************************************************
+* render_secondary_has_raw565
+* Reports whether one RAW565 image is already staged in the secondary cache.
+* Parameters: name = file name, width = image width, height = image height.
+* Returns: 1 when ready, 0 otherwise.
+***************************************************/
+uint8_t render_secondary_has_raw565(const char *name, uint16_t width, uint16_t height)
+{
+    /* Animator can query readiness, but render still owns the cache internals. */
+    return render_core_secondary_has_raw565(name, width, height);
+}
+
+/************************************************
 * render_queue_raw565
 * Queues a RAW565 image request for asynchronous or immediate rendering.
 * Parameters: name = file name, width = image width, height = image height.
@@ -61,6 +109,45 @@ uint8_t render_queue_raw565(const char *name, uint16_t width, uint16_t height)
 }
 
 /************************************************
+* render_queue_preload_raw565_secondary
+* Queues a secondary-cache preload request for the render service task.
+* Parameters: name = file name, width = image width, height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_queue_preload_raw565_secondary(const char *name, uint16_t width, uint16_t height)
+{
+    /* Secondary preloads are queued so animator never blocks on SD work. */
+    return render_core_queue_preload_raw565_secondary(name, width, height);
+}
+
+/************************************************
+* render_queue_preload_raw565_secondary_list
+* Queues a batch of RAW565 images for secondary-cache preload.
+* Parameters: names = file name list, count = number of files, width/height = image size.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_queue_preload_raw565_secondary_list(const char *const *names,
+                                                   uint8_t count,
+                                                   uint16_t width,
+                                                   uint16_t height)
+{
+    /* Batch the preload set into one queue entry so animator hands render a full event at once. */
+    return render_core_queue_preload_raw565_secondary_list(names, count, width, height);
+}
+
+/************************************************
+* render_queue_reset_secondary_cache
+* Queues a request to clear the secondary render cache.
+* Parameters: none.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_queue_reset_secondary_cache(void)
+{
+    /* Cache rotation is queued into render so only the render task mutates cache state. */
+    return render_core_queue_reset_secondary_cache();
+}
+
+/************************************************
 * render_preload_raw565_primary
 * Loads a RAW565 image into the primary cache before it is needed on screen.
 * Parameters: name = file name, width = image width, height = image height.
@@ -70,6 +157,18 @@ uint8_t render_preload_raw565_primary(const char *name, uint16_t width, uint16_t
 {
     /* Preload requests use the same core-owned image path so cache state stays centralized. */
     return render_core_preload_raw565_primary(name, width, height);
+}
+
+/************************************************
+* render_preload_raw565_secondary
+* Loads a RAW565 image into the secondary cache before it is needed on screen.
+* Parameters: name = file name, width = image width, height = image height.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t render_preload_raw565_secondary(const char *name, uint16_t width, uint16_t height)
+{
+    /* Secondary preloads share the same core-owned image path and cache ownership rules. */
+    return render_core_preload_raw565_secondary(name, width, height);
 }
 
 /************************************************
