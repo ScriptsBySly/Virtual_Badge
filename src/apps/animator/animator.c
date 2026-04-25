@@ -301,10 +301,16 @@ static void animator_preload_primary_frames(void)
         "HDEMMC.RAW",
         "HUECMC.RAW",
         "HDECMC.RAW",
+        "HUHAPPY.RAW",
+        "HDHAPPY.RAW",
+        "HUSADNEW.RAW",
+        "HDSADNEW.RAW",
+        "HUMAD.RAW",
+        "HDMAD.RAW",
     };
     uint8_t i = 0;
 
-    /* Preload only the regular face-animation frames; event frames stay on-demand for now. */
+    /* Preload every animator image into the primary cache while secondary caching is disabled. */
     for (i = 0; i < (uint8_t)(sizeof(frame_names) / sizeof(frame_names[0])); i++)
     {
         (void)render_preload_raw565_primary(frame_names[i], TFT_WIDTH, TFT_HEIGHT);

@@ -380,7 +380,7 @@ uint8_t render_image_preload_secondary(render_state_t *state,
         return 0;
     }
 
-    if (!render_cache_store_secondary(state, name, state->secondary_preload_buffer, expected_size))
+    if (!render_cache_store_primary(state, name, state->secondary_preload_buffer, expected_size))
     {
         printf("PS:S:%s\n", name);
         return 0;

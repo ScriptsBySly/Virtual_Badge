@@ -268,6 +268,11 @@ void render_cache_reset_secondary(render_state_t *state)
         return;
     }
 
+    if (!RENDER_SECONDARY_CACHE_ENABLED)
+    {
+        return;
+    }
+
     render_cache_lock(state);
     render_cache_clear_bank(state->secondary_cache, RENDER_SECONDARY_CACHE_ENTRIES);
     state->secondary_cache_next = 0;
@@ -307,10 +312,17 @@ uint8_t render_cache_has_secondary(render_state_t *state, const char *name, uint
     }
 
     render_cache_lock(state);
-    found = render_cache_find_in_bank(state->secondary_cache,
-                                      RENDER_SECONDARY_CACHE_ENTRIES,
+    found = render_cache_find_in_bank(state->primary_cache,
+                                      RENDER_PRIMARY_CACHE_ENTRIES,
                                       name,
                                       expected_size) != 0;
+    if (!found && RENDER_SECONDARY_CACHE_ENABLED)
+    {
+        found = render_cache_find_in_bank(state->secondary_cache,
+                                          RENDER_SECONDARY_CACHE_ENTRIES,
+                                          name,
+                                          expected_size) != 0;
+    }
     render_cache_unlock(state);
     return found;
 }
@@ -341,10 +353,13 @@ render_cache_entry_t *render_cache_find_any(render_state_t *state, const char *n
         return entry;
     }
 
-    entry = render_cache_find_in_bank(state->secondary_cache,
-                                      RENDER_SECONDARY_CACHE_ENTRIES,
-                                      name,
-                                      expected_size);
+    if (RENDER_SECONDARY_CACHE_ENABLED)
+    {
+        entry = render_cache_find_in_bank(state->secondary_cache,
+                                          RENDER_SECONDARY_CACHE_ENTRIES,
+                                          name,
+                                          expected_size);
+    }
     render_cache_unlock(state);
     return entry;
 }
@@ -374,7 +389,7 @@ uint8_t render_cache_copy_any(render_state_t *state,
                                       RENDER_PRIMARY_CACHE_ENTRIES,
                                       name,
                                       expected_size);
-    if (!entry)
+    if (!entry && RENDER_SECONDARY_CACHE_ENABLED)
     {
         entry = render_cache_find_in_bank(state->secondary_cache,
                                           RENDER_SECONDARY_CACHE_ENTRIES,
@@ -436,6 +451,11 @@ uint8_t render_cache_store_secondary(render_state_t *state,
     if (!state)
     {
         return 0;
+    }
+
+    if (!RENDER_SECONDARY_CACHE_ENABLED)
+    {
+        return render_cache_store_primary(state, name, data, size);
     }
 
     render_cache_lock(state);
