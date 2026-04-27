@@ -168,3 +168,26 @@ void hal_tft_rst_high(void) { TFT_RST_PORT |= (1 << TFT_RST_PIN); }
 uint8_t hal_miso_state(void) {
     return (PINB & (1 << PB4)) ? 1 : 0;
 }
+
+uint8_t hal_i2c_init(void) {
+    return 0;
+}
+
+uint8_t hal_i2c_probe_address(uint8_t address) {
+    (void)address;
+    return 0;
+}
+
+hal_i2c_probe_result_t hal_i2c_probe_address_status(uint8_t address) {
+    (void)address;
+    return HAL_I2C_PROBE_ERROR;
+}
+
+void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level) {
+    if (sda_level) {
+        *sda_level = 0;
+    }
+    if (scl_level) {
+        *scl_level = 0;
+    }
+}

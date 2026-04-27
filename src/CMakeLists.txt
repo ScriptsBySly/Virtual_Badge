@@ -21,6 +21,7 @@ set(APP_SRCS
     "system/app_mgr/app_mgr_api.c"
     "system/app_mgr/app_mgr_core.c"
     "system/app_mgr/app_mgr_tasks.c"
+    "system/expansions_detector/expansions_detector.c"
     "hal/hal_esp32_idf.c"
 )
 
@@ -39,6 +40,7 @@ idf_component_register(
         "apps"
     REQUIRES
         driver
+        esp_driver_i2c
 )
 
 if(DEBUG_APP_ENABLED)

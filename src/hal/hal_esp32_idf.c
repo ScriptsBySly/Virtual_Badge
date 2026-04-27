@@ -1,6 +1,7 @@
 #include "hal.h"
 
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
@@ -20,9 +21,11 @@
 #define SPI_SD_FAST_HZ 1000000
 #define SPI_TFT_FAST_HZ 26000000
 #define SPI_SLOW_HZ 400000
+#define I2C_PROBE_TIMEOUT_MS 20
 
 static spi_device_handle_t tft_dev = NULL;
 static spi_device_handle_t sd_dev = NULL;
+static i2c_master_bus_handle_t i2c_bus = NULL;
 static uint8_t spi2_ready = 0;
 static uint8_t spi3_ready = 0;
 
@@ -131,6 +134,56 @@ void hal_spi_sd_set_speed_fast(void) {
 
 void hal_spi_sd_set_speed_very_slow(void) {
     spi_setup_sd(SPI_SLOW_HZ);
+}
+
+uint8_t hal_i2c_init(void) {
+    i2c_master_bus_config_t bus_cfg = {
+        .i2c_port = I2C_NUM_0,
+        .sda_io_num = HAL_ESP32_I2C_SDA,
+        .scl_io_num = HAL_ESP32_I2C_SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = 1,
+    };
+
+    if (i2c_bus) {
+        return 1;
+    }
+
+    return i2c_new_master_bus(&bus_cfg, &i2c_bus) == ESP_OK ? 1 : 0;
+}
+
+uint8_t hal_i2c_probe_address(uint8_t address) {
+    return hal_i2c_probe_address_status(address) == HAL_I2C_PROBE_FOUND ? 1 : 0;
+}
+
+hal_i2c_probe_result_t hal_i2c_probe_address_status(uint8_t address) {
+    esp_err_t err = ESP_OK;
+
+    if (!i2c_bus) {
+        return HAL_I2C_PROBE_ERROR;
+    }
+
+    err = i2c_master_probe(i2c_bus, address, I2C_PROBE_TIMEOUT_MS);
+    if (err == ESP_OK) {
+        return HAL_I2C_PROBE_FOUND;
+    }
+    if (err == ESP_ERR_NOT_FOUND) {
+        return HAL_I2C_PROBE_NOT_FOUND;
+    }
+    if (err == ESP_ERR_TIMEOUT) {
+        return HAL_I2C_PROBE_TIMEOUT;
+    }
+    return HAL_I2C_PROBE_ERROR;
+}
+
+void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level) {
+    if (sda_level) {
+        *sda_level = gpio_get_level(HAL_ESP32_I2C_SDA) ? 1u : 0u;
+    }
+    if (scl_level) {
+        *scl_level = gpio_get_level(HAL_ESP32_I2C_SCL) ? 1u : 0u;
+    }
 }
 
 uint8_t hal_spi_sd_transfer(uint8_t data) {

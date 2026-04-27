@@ -6,6 +6,13 @@
 #define HAL_HAS_SEPARATE_SPI_BUSES 0
 #endif
 
+typedef enum {
+    HAL_I2C_PROBE_FOUND = 0,
+    HAL_I2C_PROBE_NOT_FOUND,
+    HAL_I2C_PROBE_TIMEOUT,
+    HAL_I2C_PROBE_ERROR,
+} hal_i2c_probe_result_t;
+
 void hal_init(void);
 
 void hal_delay_ms(uint16_t ms);
@@ -38,3 +45,8 @@ void hal_tft_rst_low(void);
 void hal_tft_rst_high(void);
 
 uint8_t hal_miso_state(void);
+
+uint8_t hal_i2c_init(void);
+uint8_t hal_i2c_probe_address(uint8_t address);
+hal_i2c_probe_result_t hal_i2c_probe_address_status(uint8_t address);
+void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level);

@@ -50,3 +50,10 @@
 #ifndef HAL_ESP32_SD_CS
 #define HAL_ESP32_SD_CS 27
 #endif
+
+#ifndef HAL_ESP32_I2C_SDA
+#define HAL_ESP32_I2C_SDA 21
+#endif
+#ifndef HAL_ESP32_I2C_SCL
+#define HAL_ESP32_I2C_SCL 22
+#endif

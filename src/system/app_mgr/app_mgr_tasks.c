@@ -1,6 +1,6 @@
 #include "system/app_mgr/app_mgr_tasks.h"
 
-#include "apps/animator/animator.h"
+#include "system/expansions_detector/expansions_detector.h"
 #include "system/render/render_api.h"
 #ifdef DEBUG_APP_ENABLED
 #include "apps/debug/debug.h"
@@ -39,8 +39,8 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
 #else
     {
         .app_id = APP_MGR_APP_MAIN,
-        .task_name = "main_app",
-        .entry_fn = animator_app_task,
+        .task_name = "expansions",
+        .entry_fn = expansions_detector_app_task,
         .stack_words = APP_MGR_TASK_STACK_WORDS,
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
