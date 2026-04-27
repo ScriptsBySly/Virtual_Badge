@@ -1,6 +1,7 @@
 #include "system/expansions_detector/expansions_detector.h"
 
 #include "hal/hal.h"
+#include "system/app_mgr/app_mgr_api.h"
 #include "system/expansions_detector/expansions_devices.h"
 #include "system/render/render_api.h"
 
@@ -8,6 +9,7 @@
 
 enum {
     EXPANSIONS_DETECTOR_POLL_MS = 500u,
+    EXPANSIONS_DETECTOR_DISCONNECT_MISSES = 4u,
     EXPANSIONS_DETECTOR_NO_DEVICE_INDEX = 0xFFu,
     EXPANSIONS_DETECTOR_NO_ADDRESS = 0xFFu,
 };
@@ -113,15 +115,25 @@ static void expansions_detector_show_status(const expansions_detector_scan_t *sc
     (void)render_show_text_screen("EXPANSIONS", "NO DEVICE", "KNOWN LIST", NULL);
 }
 
+static uint8_t expansions_detector_scan_is_nfc(const expansions_detector_scan_t *scan)
+{
+    if (!scan || !scan->found || scan->device_index >= EXPANSION_DEVICE_COUNT)
+    {
+        return 0;
+    }
+
+    return k_expansion_devices[scan->device_index].kind == EXPANSION_DEVICE_KIND_NFC ? 1u : 0u;
+}
+
 uint8_t expansions_detector_app_task(void *ctx)
 {
+    app_mgr_state_t *app_state = (app_mgr_state_t *)ctx;
     uint8_t last_found = 0xFFu;
     uint8_t last_device_index = EXPANSIONS_DETECTOR_NO_DEVICE_INDEX;
     uint8_t last_address = EXPANSIONS_DETECTOR_NO_ADDRESS;
     uint8_t last_timeout_seen = 0xFFu;
     uint8_t last_error_seen = 0xFFu;
-
-    (void)ctx;
+    uint8_t nfc_miss_count = 0;
 
     if (!hal_i2c_init())
     {
@@ -133,7 +145,58 @@ uint8_t expansions_detector_app_task(void *ctx)
 
     for (;;)
     {
-        expansions_detector_scan_t scan = expansions_detector_scan_first();
+        app_mgr_app_id_t active_app = app_mgr_get_active(app_state);
+        expansions_detector_scan_t scan = {
+            .found = 0,
+            .device_index = EXPANSIONS_DETECTOR_NO_DEVICE_INDEX,
+            .address = EXPANSIONS_DETECTOR_NO_ADDRESS,
+            .timeout_seen = 0,
+            .error_seen = 0,
+        };
+        uint8_t has_nfc = 0;
+
+        if (active_app == APP_MGR_APP_NFC_READER)
+        {
+            hal_delay_ms(EXPANSIONS_DETECTOR_POLL_MS);
+            continue;
+        }
+
+        scan = expansions_detector_scan_first();
+        has_nfc = expansions_detector_scan_is_nfc(&scan);
+
+        if (has_nfc && active_app != APP_MGR_APP_NFC_READER)
+        {
+            nfc_miss_count = 0;
+            if (app_mgr_launch_app(app_state, APP_MGR_APP_NFC_READER))
+            {
+                last_found = scan.found;
+                last_device_index = scan.device_index;
+                last_address = scan.address;
+                last_timeout_seen = scan.timeout_seen;
+                last_error_seen = scan.error_seen;
+            }
+            hal_delay_ms(EXPANSIONS_DETECTOR_POLL_MS);
+            continue;
+        }
+
+        if (has_nfc)
+        {
+            nfc_miss_count = 0;
+        }
+
+        if (!has_nfc && active_app == APP_MGR_APP_NFC_READER)
+        {
+            if (nfc_miss_count < EXPANSIONS_DETECTOR_DISCONNECT_MISSES)
+            {
+                nfc_miss_count++;
+            }
+            if (nfc_miss_count < EXPANSIONS_DETECTOR_DISCONNECT_MISSES)
+            {
+                hal_delay_ms(EXPANSIONS_DETECTOR_POLL_MS);
+                continue;
+            }
+            (void)app_mgr_stop_active(app_state);
+        }
 
         if (scan.found != last_found ||
             scan.device_index != last_device_index ||

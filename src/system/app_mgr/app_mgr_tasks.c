@@ -1,5 +1,6 @@
 #include "system/app_mgr/app_mgr_tasks.h"
 
+#include "apps/nfc_reader/nfc_reader.h"
 #include "system/expansions_detector/expansions_detector.h"
 #include "system/render/render_api.h"
 #ifdef DEBUG_APP_ENABLED
@@ -24,6 +25,17 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .auto_start = 1,
         .uses_display = 0,
     },
+    {
+        .app_id = APP_MGR_APP_EXPANSIONS_DETECTOR,
+        .task_name = "expansions",
+        .entry_fn = expansions_detector_app_task,
+        .stack_words = APP_MGR_TASK_STACK_WORDS,
+        .priority = APP_MGR_TASK_PRIORITY,
+        .task_ctx = 0,
+        .role = APP_MGR_TASK_ROLE_SERVICE,
+        .auto_start = 1,
+        .uses_display = 0,
+    },
 #ifdef DEBUG_APP_ENABLED
     {
         .app_id = APP_MGR_APP_DEBUG,
@@ -36,11 +48,11 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .auto_start = 0,
         .uses_display = 1,
     },
-#else
+#endif
     {
-        .app_id = APP_MGR_APP_MAIN,
-        .task_name = "expansions",
-        .entry_fn = expansions_detector_app_task,
+        .app_id = APP_MGR_APP_NFC_READER,
+        .task_name = "nfc_reader",
+        .entry_fn = nfc_reader_app_task,
         .stack_words = APP_MGR_TASK_STACK_WORDS,
         .priority = APP_MGR_TASK_PRIORITY,
         .task_ctx = 0,
@@ -48,7 +60,6 @@ static const app_mgr_task_desc_t k_app_mgr_tasks[] = {
         .auto_start = 0,
         .uses_display = 1,
     },
-#endif
 };
 
 /************************************************

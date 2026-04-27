@@ -5,6 +5,7 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_err.h"
 
@@ -26,8 +27,22 @@
 static spi_device_handle_t tft_dev = NULL;
 static spi_device_handle_t sd_dev = NULL;
 static i2c_master_bus_handle_t i2c_bus = NULL;
+static SemaphoreHandle_t i2c_mutex = NULL;
 static uint8_t spi2_ready = 0;
 static uint8_t spi3_ready = 0;
+
+static uint8_t hal_i2c_create_bus(void) {
+    i2c_master_bus_config_t bus_cfg = {
+        .i2c_port = I2C_NUM_0,
+        .sda_io_num = HAL_ESP32_I2C_SDA,
+        .scl_io_num = HAL_ESP32_I2C_SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = 1,
+    };
+
+    return i2c_new_master_bus(&bus_cfg, &i2c_bus) == ESP_OK ? 1u : 0u;
+}
 
 static uint8_t *spi_ready_flag(spi_host_device_t host) {
     switch (host) {
@@ -137,20 +152,45 @@ void hal_spi_sd_set_speed_very_slow(void) {
 }
 
 uint8_t hal_i2c_init(void) {
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = I2C_NUM_0,
-        .sda_io_num = HAL_ESP32_I2C_SDA,
-        .scl_io_num = HAL_ESP32_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = 1,
-    };
-
     if (i2c_bus) {
-        return 1;
+        if (!i2c_mutex) {
+            i2c_mutex = xSemaphoreCreateMutex();
+        }
+        return i2c_mutex ? 1 : 0;
     }
 
-    return i2c_new_master_bus(&bus_cfg, &i2c_bus) == ESP_OK ? 1 : 0;
+    if (!hal_i2c_create_bus()) {
+        return 0;
+    }
+    if (!i2c_mutex) {
+        i2c_mutex = xSemaphoreCreateMutex();
+    }
+    return i2c_mutex ? 1 : 0;
+}
+
+uint8_t hal_i2c_recover(void) {
+    SemaphoreHandle_t old_mutex = i2c_mutex;
+
+    if (!old_mutex) {
+        return hal_i2c_init();
+    }
+
+    if (xSemaphoreTake(old_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return 0;
+    }
+
+    if (i2c_bus) {
+        (void)i2c_master_bus_reset(i2c_bus);
+        (void)i2c_del_master_bus(i2c_bus);
+        i2c_bus = NULL;
+    }
+
+    (void)xSemaphoreGive(old_mutex);
+    vSemaphoreDelete(old_mutex);
+    i2c_mutex = NULL;
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    return hal_i2c_init();
 }
 
 uint8_t hal_i2c_probe_address(uint8_t address) {
@@ -159,22 +199,28 @@ uint8_t hal_i2c_probe_address(uint8_t address) {
 
 hal_i2c_probe_result_t hal_i2c_probe_address_status(uint8_t address) {
     esp_err_t err = ESP_OK;
+    hal_i2c_probe_result_t result = HAL_I2C_PROBE_ERROR;
 
-    if (!i2c_bus) {
+    if (!i2c_bus || !i2c_mutex) {
         return HAL_I2C_PROBE_ERROR;
+    }
+
+    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(I2C_PROBE_TIMEOUT_MS + 5)) != pdTRUE) {
+        return HAL_I2C_PROBE_TIMEOUT;
     }
 
     err = i2c_master_probe(i2c_bus, address, I2C_PROBE_TIMEOUT_MS);
     if (err == ESP_OK) {
-        return HAL_I2C_PROBE_FOUND;
+        result = HAL_I2C_PROBE_FOUND;
     }
-    if (err == ESP_ERR_NOT_FOUND) {
-        return HAL_I2C_PROBE_NOT_FOUND;
+    else if (err == ESP_ERR_NOT_FOUND) {
+        result = HAL_I2C_PROBE_NOT_FOUND;
     }
-    if (err == ESP_ERR_TIMEOUT) {
-        return HAL_I2C_PROBE_TIMEOUT;
+    else if (err == ESP_ERR_TIMEOUT) {
+        result = HAL_I2C_PROBE_TIMEOUT;
     }
-    return HAL_I2C_PROBE_ERROR;
+    (void)xSemaphoreGive(i2c_mutex);
+    return result;
 }
 
 void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level) {
@@ -184,6 +230,62 @@ void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level) {
     if (scl_level) {
         *scl_level = gpio_get_level(HAL_ESP32_I2C_SCL) ? 1u : 0u;
     }
+}
+
+static uint8_t hal_i2c_add_temp_device(uint8_t address, i2c_master_dev_handle_t *out_dev) {
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = address,
+        .scl_speed_hz = 100000,
+    };
+
+    if (!i2c_bus || !out_dev) {
+        return 0;
+    }
+
+    return i2c_master_bus_add_device(i2c_bus, &dev_cfg, out_dev) == ESP_OK ? 1 : 0;
+}
+
+uint8_t hal_i2c_write(uint8_t address, const uint8_t *data, uint16_t len, uint16_t timeout_ms) {
+    i2c_master_dev_handle_t dev = NULL;
+    esp_err_t err = ESP_OK;
+
+    if (!data || len == 0 || !i2c_mutex) {
+        return 0;
+    }
+    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(timeout_ms + 10u)) != pdTRUE) {
+        return 0;
+    }
+    if (!hal_i2c_add_temp_device(address, &dev)) {
+        (void)xSemaphoreGive(i2c_mutex);
+        return 0;
+    }
+
+    err = i2c_master_transmit(dev, data, len, timeout_ms);
+    (void)i2c_master_bus_rm_device(dev);
+    (void)xSemaphoreGive(i2c_mutex);
+    return err == ESP_OK ? 1 : 0;
+}
+
+uint8_t hal_i2c_read(uint8_t address, uint8_t *data, uint16_t len, uint16_t timeout_ms) {
+    i2c_master_dev_handle_t dev = NULL;
+    esp_err_t err = ESP_OK;
+
+    if (!data || len == 0 || !i2c_mutex) {
+        return 0;
+    }
+    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(timeout_ms + 10u)) != pdTRUE) {
+        return 0;
+    }
+    if (!hal_i2c_add_temp_device(address, &dev)) {
+        (void)xSemaphoreGive(i2c_mutex);
+        return 0;
+    }
+
+    err = i2c_master_receive(dev, data, len, timeout_ms);
+    (void)i2c_master_bus_rm_device(dev);
+    (void)xSemaphoreGive(i2c_mutex);
+    return err == ESP_OK ? 1 : 0;
 }
 
 uint8_t hal_spi_sd_transfer(uint8_t data) {

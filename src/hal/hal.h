@@ -47,6 +47,9 @@ void hal_tft_rst_high(void);
 uint8_t hal_miso_state(void);
 
 uint8_t hal_i2c_init(void);
+uint8_t hal_i2c_recover(void);
 uint8_t hal_i2c_probe_address(uint8_t address);
 hal_i2c_probe_result_t hal_i2c_probe_address_status(uint8_t address);
 void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level);
+uint8_t hal_i2c_write(uint8_t address, const uint8_t *data, uint16_t len, uint16_t timeout_ms);
+uint8_t hal_i2c_read(uint8_t address, uint8_t *data, uint16_t len, uint16_t timeout_ms);

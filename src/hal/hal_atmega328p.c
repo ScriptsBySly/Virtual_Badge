@@ -173,6 +173,10 @@ uint8_t hal_i2c_init(void) {
     return 0;
 }
 
+uint8_t hal_i2c_recover(void) {
+    return 0;
+}
+
 uint8_t hal_i2c_probe_address(uint8_t address) {
     (void)address;
     return 0;
@@ -190,4 +194,20 @@ void hal_i2c_get_line_levels(uint8_t *sda_level, uint8_t *scl_level) {
     if (scl_level) {
         *scl_level = 0;
     }
+}
+
+uint8_t hal_i2c_write(uint8_t address, const uint8_t *data, uint16_t len, uint16_t timeout_ms) {
+    (void)address;
+    (void)data;
+    (void)len;
+    (void)timeout_ms;
+    return 0;
+}
+
+uint8_t hal_i2c_read(uint8_t address, uint8_t *data, uint16_t len, uint16_t timeout_ms) {
+    (void)address;
+    (void)data;
+    (void)len;
+    (void)timeout_ms;
+    return 0;
 }

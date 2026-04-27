@@ -16,6 +16,8 @@ typedef enum {
     APP_MGR_APP_RENDER,
     APP_MGR_APP_MAIN,
     APP_MGR_APP_DEBUG,
+    APP_MGR_APP_EXPANSIONS_DETECTOR,
+    APP_MGR_APP_NFC_READER,
 } app_mgr_app_id_t;
 
 typedef enum {

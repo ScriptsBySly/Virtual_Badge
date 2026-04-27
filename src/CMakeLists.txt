@@ -13,6 +13,7 @@ set(APP_SRCS
     "drivers/card_reader/card_reader_fat.c"
     "drivers/card_reader/card_reader_spi.c"
     "apps/animator/animator.c"
+    "apps/nfc_reader/nfc_reader.c"
     "system/render/render_api.c"
     "system/render/render_cache.c"
     "system/render/render_core.c"

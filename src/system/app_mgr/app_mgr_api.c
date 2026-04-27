@@ -24,6 +24,17 @@ app_mgr_state_t *app_mgr_launch(app_mgr_state_t *state)
 }
 
 /************************************************
+* app_mgr_launch_app
+* Launches one registered application by id.
+* Parameters: state = manager state, app_id = registered app to launch.
+* Returns: launched app handle on success, NULL on failure.
+***************************************************/
+app_mgr_state_t *app_mgr_launch_app(app_mgr_state_t *state, app_mgr_app_id_t app_id)
+{
+    return app_mgr_core_launch_app(state, app_id);
+}
+
+/************************************************
 * app_mgr_stop
 * Stops the task referenced by the provided app handle.
 * Parameters: state = app handle returned by app_mgr_launch.
@@ -32,6 +43,17 @@ app_mgr_state_t *app_mgr_launch(app_mgr_state_t *state)
 uint8_t app_mgr_stop(app_mgr_state_t *state)
 {
     return app_mgr_core_stop(state);
+}
+
+/************************************************
+* app_mgr_stop_active
+* Stops the current active application without applying fallback launch policy.
+* Parameters: state = manager state.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t app_mgr_stop_active(app_mgr_state_t *state)
+{
+    return app_mgr_core_stop_active(state);
 }
 
 /************************************************

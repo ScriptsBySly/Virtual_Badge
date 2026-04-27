@@ -14,7 +14,7 @@ static void app_bootstrap(void)
 #ifdef DEBUG_APP_ENABLED
     app_mgr_app_id_t startup_app = APP_MGR_APP_DEBUG;
 #else
-    app_mgr_app_id_t startup_app = APP_MGR_APP_MAIN;
+    app_mgr_app_id_t startup_app = APP_MGR_APP_NONE;
 #endif
 
     hal_init();

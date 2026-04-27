@@ -47,10 +47,6 @@ uint8_t app_mgr_core_startup(app_mgr_state_t *state)
     {
         return 0;
     }
-    if (state->startup_app == APP_MGR_APP_NONE)
-    {
-        state->startup_app = APP_MGR_APP_MAIN;
-    }
     return app_mgr_core_launch(state) != 0;
 }
 
@@ -189,7 +185,7 @@ static uint8_t app_mgr_core_launch_service(app_mgr_state_t *state, const app_mgr
     runtime->app_state = state;
     runtime->app_id = desc->app_id;
     runtime->entry_fn = desc->entry_fn;
-    runtime->task_ctx = desc->task_ctx;
+    runtime->task_ctx = desc->task_ctx ? desc->task_ctx : state;
     runtime->role = desc->role;
 
     if (xTaskCreate(app_mgr_core_task_trampoline,
@@ -250,7 +246,7 @@ static app_mgr_state_t *app_mgr_core_launch_registered_app(app_mgr_state_t *stat
     runtime->app_state = state;
     runtime->app_id = app_id;
     runtime->entry_fn = desc->entry_fn;
-    runtime->task_ctx = desc->task_ctx;
+    runtime->task_ctx = desc->task_ctx ? desc->task_ctx : state;
     runtime->role = desc->role;
 
     if (xTaskCreate(app_mgr_core_task_trampoline,
@@ -294,7 +290,7 @@ static void app_mgr_core_handle_task_failure(app_mgr_state_t *state, app_mgr_app
         return;
     }
 
-    if (g_app_mgr_main_state)
+    if (g_app_mgr_main_state && g_app_mgr_main_state->startup_app != APP_MGR_APP_NONE)
     {
         (void)app_mgr_core_launch_registered_app(g_app_mgr_main_state, APP_MGR_APP_MAIN);
     }
@@ -397,15 +393,16 @@ app_mgr_state_t *app_mgr_core_launch(app_mgr_state_t *state)
     }
 
     app_id = state->startup_app;
-    if (app_id == APP_MGR_APP_NONE)
-    {
-        app_id = APP_MGR_APP_MAIN;
-    }
 
 #if defined(ESP_PLATFORM)
     if (!app_mgr_core_launch_auto_services(state))
     {
         return 0;
+    }
+
+    if (app_id == APP_MGR_APP_NONE)
+    {
+        return state;
     }
 
     if (g_app_mgr_active_state && g_app_mgr_active_state != state)
@@ -417,6 +414,40 @@ app_mgr_state_t *app_mgr_core_launch(app_mgr_state_t *state)
     }
     else if (g_app_mgr_active_state == state && state->active_task_handle)
     {
+        if (!app_mgr_core_stop_task_app(state))
+        {
+            return 0;
+        }
+    }
+
+    return app_mgr_core_launch_registered_app(state, app_id);
+#else
+    state->active_app = app_id;
+    state->app_id = 1u;
+    return state;
+#endif
+}
+
+/************************************************
+* app_mgr_core_launch_app
+* Stops the current task-backed app and launches one registered app by id.
+* Parameters: state = manager state, app_id = app to launch.
+* Returns: launched app handle on success, NULL on failure.
+***************************************************/
+app_mgr_state_t *app_mgr_core_launch_app(app_mgr_state_t *state, app_mgr_app_id_t app_id)
+{
+    if (!state || app_id == APP_MGR_APP_NONE)
+    {
+        return 0;
+    }
+
+#if defined(ESP_PLATFORM)
+    if (state->active_task_handle)
+    {
+        if (state->active_app == app_id)
+        {
+            return state;
+        }
         if (!app_mgr_core_stop_task_app(state))
         {
             return 0;
@@ -470,6 +501,37 @@ uint8_t app_mgr_core_stop(app_mgr_state_t *state)
     }
     state->app_id = 0;
     state->active_app = APP_MGR_APP_MAIN;
+    return 1;
+#endif
+}
+
+/************************************************
+* app_mgr_core_stop_active
+* Stops the active task-backed app without launching a fallback app.
+* Parameters: state = manager state.
+* Returns: 1 on success, 0 on failure.
+***************************************************/
+uint8_t app_mgr_core_stop_active(app_mgr_state_t *state)
+{
+    if (!state)
+    {
+        return 0;
+    }
+
+#if defined(ESP_PLATFORM)
+    if (g_app_mgr_active_state != state || state->app_id == 0 || !state->active_task_handle)
+    {
+        return 0;
+    }
+
+    return app_mgr_core_stop_task_app(state);
+#else
+    if (state->app_id == 0)
+    {
+        return 0;
+    }
+    state->app_id = 0;
+    state->active_app = APP_MGR_APP_NONE;
     return 1;
 #endif
 }
